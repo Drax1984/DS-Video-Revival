@@ -1,0 +1,110 @@
+package stream
+
+import (
+	"path/filepath"
+	"strings"
+
+	"dsvideorevival/internal/library"
+)
+
+// Caps describes what a client can play natively.
+type Caps struct {
+	Name       string
+	Containers map[string]bool // mp4, mov, webm, mkv …
+	Video      map[string]bool // h264, hevc, vp9, av1 …
+	Audio      map[string]bool // aac, mp3, opus, ac3 …
+}
+
+func set(v ...string) map[string]bool {
+	m := map[string]bool{}
+	for _, x := range v {
+		m[x] = true
+	}
+	return m
+}
+
+// Vordefinierte Client-Profile (konservativ, „gängigste Codecs“).
+var (
+	// Browser ohne HEVC (Chrome/Firefox/Edge): H.264 + AAC/MP3/Opus in MP4/WebM.
+	CapsBrowser = Caps{Name: "browser", Containers: set("mp4", "m4v", "webm"), Video: set("h264", "vp9", "av1"), Audio: set("aac", "mp3", "opus", "vorbis", "flac")}
+	// Safari / Apple (AVPlayer): H.264 + HEVC, AAC/MP3/AC3/E-AC3/ALAC in MP4/MOV.
+	CapsApple = Caps{Name: "apple", Containers: set("mp4", "m4v", "mov"), Video: set("h264", "hevc"), Audio: set("aac", "mp3", "ac3", "eac3", "alac")}
+	// Android (ExoPlayer, Gerätedecoder unbekannt): H.264/HEVC, AAC/MP3/Opus in MP4/MKV/WebM.
+	CapsAndroid = Caps{Name: "android", Containers: set("mp4", "m4v", "mkv", "webm"), Video: set("h264", "hevc", "vp9"), Audio: set("aac", "mp3", "opus", "vorbis", "flac")}
+)
+
+// Mode of delivery.
+const (
+	ModeDirect    = "direct"    // Originaldatei (Range)
+	ModeRemux     = "remux"     // HLS, Video kopiert, Audio ggf. → AAC
+	ModeTranscode = "transcode" // HLS, Video → H.264
+)
+
+// Decision is the playback plan.
+type Decision struct {
+	Mode      string `json:"mode"`
+	CopyVideo bool   `json:"copy_video"`
+	CopyAudio bool   `json:"copy_audio"`
+	HEVC      bool   `json:"hevc"`
+	MaxHeight int    `json:"max_height,omitempty"` // 0 = 1080
+	Client    string `json:"client,omitempty"`     // Caps-Name (Wahl des Ton-Encoders)
+	// Duration der Quelle (Sekunden). >0: vollständige, durchsuchbare HLS-Liste
+	// (VOD) – Springen/Fortsetzen an jede Stelle, FFmpeg startet bei Bedarf neu.
+	Duration float64 `json:"duration,omitempty"`
+	Reason   string  `json:"reason"`
+}
+
+// HLSAudioCopy: Tonformat kann unverändert in fMP4-HLS übernommen werden
+// (Apple: AAC, AC-3, E-AC-3 laut HLS-Spezifikation; sonst nur AAC).
+func HLSAudioCopy(codec string, c Caps) bool {
+	return codec == "aac" || (c.Name == "apple" && (codec == "ac3" || codec == "eac3"))
+}
+
+// Decide chooses direct play, remux or transcode.
+func Decide(p *library.Probe, path string, c Caps) Decision {
+	d := decide(p, path, c)
+	d.Client = c.Name
+	return d
+}
+
+func decide(p *library.Probe, path string, c Caps) Decision {
+	container := strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
+	if p == nil || !p.OK {
+		// Ohne Analyse: nur sicher bekannte Kombination direkt, sonst Transcode.
+		if c.Containers[container] && (container == "mp4" || container == "m4v") {
+			return Decision{Mode: ModeDirect, Reason: "keine Analyse – MP4 direkt versucht"}
+		}
+		return Decision{Mode: ModeTranscode, Reason: "keine Analyse möglich"}
+	}
+	vOK := p.VideoCodec == "" || c.Video[p.VideoCodec]
+	aOK := p.AudioCodec == "" || c.Audio[p.AudioCodec]
+	if c.Containers[container] && vOK && aOK {
+		return Decision{Mode: ModeDirect, CopyVideo: true, CopyAudio: true, Reason: "Container/Codecs vom Client unterstützt"}
+	}
+	copyAudio := p.AudioCodec == "" || HLSAudioCopy(p.AudioCodec, c)
+	// HLS (fMP4) kann H.264 und HEVC tragen; VP9/AV1 nur bedingt → umwandeln.
+	hlsVideo := p.VideoCodec == "h264" || (p.VideoCodec == "hevc" && c.Video["hevc"])
+	if hlsVideo {
+		d := Decision{Mode: ModeRemux, CopyVideo: true, CopyAudio: copyAudio, HEVC: p.VideoCodec == "hevc"}
+		d.Reason = "Container " + container + " → HLS"
+		if copyAudio && p.AudioCodec != "" {
+			d.Reason += ", Ton " + p.AudioCodec + " unverändert"
+		} else if p.AudioCodec != "" {
+			d.Reason += ", Ton " + p.AudioCodec + " → AAC"
+		}
+		return d
+	}
+	return Decision{Mode: ModeTranscode, CopyAudio: copyAudio, Reason: "Video " + p.VideoCodec + " → H.264"}
+}
+
+// CapsFor maps a DS-video hls_remux device string or browser hint to caps.
+func CapsFor(device string) Caps {
+	d := strings.ToLower(device)
+	switch {
+	case strings.Contains(d, "tvos") || strings.Contains(d, "ios") || strings.Contains(d, "iphone") || strings.Contains(d, "ipad") || strings.Contains(d, "apple") || strings.Contains(d, "safari"):
+		return CapsApple
+	case strings.Contains(d, "android"):
+		return CapsAndroid
+	}
+	return CapsBrowser
+}

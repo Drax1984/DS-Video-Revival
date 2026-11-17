@@ -1,0 +1,16 @@
+{
+  ".url": {
+    "SYNO.SDS.DSVideoRevival": {
+      "type": "url",
+      "icon": "images/icon_{0}.png",
+      "title": "DS Video Revival",
+      "desc": "Mediathek und Verwaltung von DS Video Revival",
+      "protocol": "http",
+      "port": "5180",
+      "url": "/dsvr/",
+      "allUsers": true,
+      "grantPrivilege": "all",
+      "advanceGrantPrivilege": true
+    }
+  }
+}

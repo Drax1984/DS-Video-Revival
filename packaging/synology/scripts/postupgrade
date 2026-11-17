@@ -1,0 +1,3 @@
+#!/bin/sh
+# Keine Aktion nötig: DSM stoppt das Paket vorher; Daten in var/ bleiben bei Updates erhalten.
+exit 0

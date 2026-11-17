@@ -1,0 +1,12 @@
+#!/bin/sh
+# Schutz: Solange DS Video Revival die Ports 5000/5001 übernommen hat (DSM läuft
+# dann auf 5010/5011), wird die Deinstallation abgebrochen. Sonst wäre DSM danach
+# nur noch über Port 5010 erreichbar. Bei Updates (UPGRADE) nicht relevant.
+. "$(dirname "$0")/common"
+if [ "$SYNOPKG_PKG_STATUS" != "UPGRADE" ] && grep -q '"frontend_mode": *true' "$CONFIG" 2>/dev/null; then
+    MSG="DS Video Revival nutzt gerade die Ports 5000/5001. Bitte zuerst in DS Video Revival → Einstellungen „Zurück auf eigenen Port“ klicken, danach deinstallieren. (DSM ist derzeit unter Port 5010 erreichbar.)"
+    [ -n "$SYNOPKG_TEMP_LOGFILE" ] && echo "$MSG" > "$SYNOPKG_TEMP_LOGFILE"
+    log_msg "Deinstallation abgebrochen: Port-Modus aktiv"
+    exit 1
+fi
+exit 0

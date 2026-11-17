@@ -1,0 +1,8 @@
+build/
+dist/
+*.jsonl
+var/
+*.spk
+*.sha256
+.DS_Store
+/dsvr

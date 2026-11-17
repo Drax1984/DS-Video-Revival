@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DS Video Revival</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><img class="partner" src="logo.webp" width="40" height="39" alt="DRAX × BLACK.ZERO – in Cooperation" title="DRAX × BLACK.ZERO – in Cooperation (anklicken zum Vergrößern)" tabindex="0" role="button"> DS Video Revival</div>
+  <nav class="tabs" id="tabs" hidden>
+    <button data-tab="library" class="active">Mediathek</button>
+    <button data-tab="tree" data-dsm hidden>Ordneransicht</button>
+    <button data-tab="status" data-admin>Status</button>
+    <button data-tab="folders" data-admin>Medienordner</button>
+    <button data-tab="access" data-admin>Benutzerrechte</button>
+    <button data-tab="conns" data-admin>Verbindungen</button>
+    <button data-tab="settings" data-admin>Einstellungen</button>
+    <button data-tab="log" data-admin>Protokoll</button>
+  </nav>
+  <div class="whobox"><span id="who" class="muted"></span><button type="button" id="logout" class="secondary small" hidden>Abmelden</button></div>
+</header>
+
+<main>
+  <section id="login" class="card narrow" hidden>
+    <h2>Anmelden</h2>
+    <p class="muted">Mit deinem DSM-Konto anmelden.</p>
+    <form id="loginForm">
+      <label>Konto <input name="account" autocomplete="username" required></label>
+      <label>Passwort <input name="passwd" type="password" autocomplete="current-password" required></label>
+      <label id="otpRow" hidden>Bestätigungscode (2FA) <input name="otp_code" inputmode="numeric" autocomplete="one-time-code"></label>
+      <button type="submit">Anmelden</button>
+      <p id="loginErr" class="err" role="alert"></p>
+    </form>
+  </section>
+
+  <!-- Mediathek -->
+  <section data-panel="library" hidden>
+    <div class="libbar">
+      <div class="seg" role="tablist" id="kindSeg">
+        <button data-kind="movie" data-lib="0" class="active">Filme</button>
+        <button data-kind="tvshow" data-lib="0">Serien</button>
+        <button data-kind="home_video" data-lib="0">Heimvideos</button>
+        <button data-kind="tv_record" data-lib="0">TV-Aufnahmen</button>
+      </div>
+      <input id="search" type="search" placeholder="Titel oder Genre suchen" aria-label="Suche">
+      <select id="sort" aria-label="Sortierung">
+        <option value="title">A–Z</option>
+        <option value="added">Zuletzt hinzugefügt</option>
+        <option value="year">Erscheinungsjahr</option>
+        <option value="my_rating">Eigene Bewertung</option>
+        <option value="rating">IMDb-Bewertung</option>
+      </select>
+      <span id="libCount" class="muted"></span>
+      <span id="libMsg" class="muted"></span>
+    </div>
+    <div id="libHint" class="hint" hidden></div>
+    <div id="grid" class="grid-posters"></div>
+    <p class="attrib muted">Metadaten: <a href="https://www.wikidata.org/" target="_blank" rel="noopener">Wikidata</a> (CC0), Texte und Plakate: <a href="https://de.wikipedia.org/" target="_blank" rel="noopener">Wikipedia</a> (CC BY-SA; Plakatrechte bei den Rechteinhabern), Serien: <a href="https://www.tvmaze.com/" target="_blank" rel="noopener">TVmaze</a> (CC BY-SA). IMDb-Bewertungen: Information courtesy of IMDb (<a href="https://www.imdb.com" target="_blank" rel="noopener">imdb.com</a>), used with permission (nicht-kommerzielle Datensätze). Mit eigenem Schlüssel: This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+  </section>
+
+  <!-- Ordneransicht (nur DSM-Administratoren) -->
+  <section data-panel="tree" class="card" hidden>
+    <div class="row between wrap"><h2>Ordneransicht</h2>
+      <div class="row wrap">
+        <select id="treeKind" aria-label="Medienart"><option value="">Alles</option><option value="movie">Filme</option><option value="episode">Serien</option><option value="home_video">Heimvideos</option><option value="tv_record">TV-Aufnahmen</option></select>
+        <select id="treeView" aria-label="Ansicht"><option value="dirs">Nach Ordnern</option><option value="dups">Nur Doppelgänger</option></select>
+        <button type="button" id="dupDelAll" class="danger small" hidden>Alle Doppelgänger löschen</button>
+        <input id="treeSearch" type="search" placeholder="Titel, Datei oder Ordner suchen" aria-label="Suche"><button type="button" id="treeToggle" class="secondary small">Alle zuklappen</button></div></div>
+    <p class="muted">Alle Medien nach Ordnern, mit Dateipfad (nur für DSM-Administratoren sichtbar). Dateipfad anklicken = Ordner in der File Station öffnen (neues Fenster), Titel anklicken = Detailansicht. „Doppelgänger“: Titel, die mehrfach als Datei vorhanden sind (gleicher Film laut TMDb, gleiche Folge, auch „Sample“-Dateien; Teile wie CD1/CD2 zählen nicht). „Alle Doppelgänger löschen“ behält je Titel die beste Datei (höchste Auflösung, dann längste Laufzeit, dann größte Datei) – sie ist mit „bleibt“ markiert. „Ignorieren“ nimmt eine Datei dauerhaft aus der Doppelgänger-Suche; rückgängig unter „Ignorierte Dateien“.</p>
+    <p id="treeMsg" class="muted"></p>
+    <div id="treeBox"></div>
+  </section>
+
+  <section data-panel="status" class="card" hidden>
+    <div class="row between"><h2>Status</h2><button id="scanBtn">Bibliothek jetzt einlesen</button></div>
+    <div id="statusGrid" class="kpis"></div>
+    <div id="scanErrors"></div>
+  </section>
+
+  <section data-panel="folders" class="card" hidden>
+    <h2>Medienordner</h2>
+    <p class="muted">Beim Hinzufügen erhält der Paketbenutzer <code>dsvideorevival</code> automatisch Leserecht auf den freigegebenen Ordner (nur Lesen).</p>
+    <div class="tblwrap"><table class="tbl"><thead><tr><th>Pfad</th><th>Bibliothek</th><th>Lesbar</th><th></th></tr></thead><tbody id="folderRows"></tbody></table></div>
+    <div class="row wrap"><button type="button" id="addFolder">Ordner hinzufügen …</button><span id="folderMsg" class="muted"></span></div>
+    <h3>Eigene Bibliotheken</h3>
+    <p class="muted">Zusätzlich zu Filme, Serien, Heimvideos und TV-Aufnahmen, z.B. „Dokus“ oder „Kinderfilme“. Sie erscheinen in der Mediathek und in den DS-video-Apps als eigener Bereich. Ordner ordnest du oben über die Spalte „Bibliothek“ zu.</p>
+    <div id="libRows"></div>
+    <form id="libNew" class="row wrap">
+      <input id="libNewName" maxlength="64" placeholder="Name der neuen Bibliothek" aria-label="Name der neuen Bibliothek">
+      <select id="libNewType" aria-label="Typ"><option value="movie">Filme</option><option value="tvshow">Serien</option><option value="home_video">Heimvideos</option><option value="tv_record">TV-Aufnahmen</option></select>
+      <button type="submit">Bibliothek anlegen</button><span id="libMsgCfg" class="muted"></span>
+    </form>
+    <h3>Optionen</h3>
+    <label>Automatisch einlesen alle <input id="scanInt" type="number" min="0" max="1440" class="num"> Minuten (0 = aus)</label>
+    <button id="saveCfg">Speichern</button> <span id="cfgMsg" class="muted"></span>
+  </section>
+
+  <section data-panel="access" class="card" hidden>
+    <h2>Benutzerrechte</h2>
+    <p class="muted"><b>Wer sich anmelden darf</b> (App und Weboberfläche), legst du in DSM fest:
+      Systemsteuerung → Anwendungsberechtigungen → „DS Video Revival“ → Bearbeiten (Benutzer und Gruppen).
+      Wer dort keine Berechtigung hat, wird bei der Anmeldung abgewiesen.</p>
+    <p class="hint">Aussperrschutz: DSM-Administratoren werden nie abgewiesen und sehen immer alle Inhalte – Freigaben und Altersgrenzen gelten für sie nicht.</p>
+    <h3>Administratoren von DS Video Revival</h3>
+    <p class="muted">Mitglieder haben in DS Video Revival alle Admin-Funktionen (Mediathek verwalten, Titel umbenennen/löschen, Benutzerrechte, Einstellungen) und sehen in den DS-video-Apps alle Inhalte – aber keine zusätzlichen Rechte in DSM.
+      DSM-Administratoren gehören immer dazu. Änderungen werden sofort gespeichert.</p>
+    <div id="accAdmins"></div>
+    <p id="accAdminMsg" class="muted"></p>
+    <h3>Gruppen</h3>
+    <p class="muted">Eigene Gruppen von DS Video Revival, zusammengestellt aus den DSM-Benutzern. Sie gelten nur hier (Weboberfläche und DS-video-Apps), nicht in DSM.
+      „Bearbeiten“ ändert Name und Mitglieder, „Löschen“ entfernt die Gruppe – beides wird sofort gespeichert.</p>
+    <div id="accGroups"></div>
+    <div class="row wrap"><button type="button" id="accNewGroup" class="secondary">Neue Gruppe</button><span id="accGroupMsg" class="muted"></span></div>
+    <h3>Medienordner freigeben</h3>
+    <p class="muted">„Alle“ = jeder angemeldete Benutzer sieht den Ordner. Sonst nur die ausgewählten Benutzer und Gruppen.</p>
+    <div id="accFolders"></div>
+    <h3>Herunterladen</h3>
+    <p class="muted">Wer in den DS-video-Apps Titel zum Offline-Ansehen aufs Gerät laden darf (auch per Offline-Umwandlung). „Alle“ = jeder angemeldete Benutzer. Administratoren dürfen immer.</p>
+    <div class="accrow"><span>Herunterladen erlaubt für</span><div id="accDownload"></div></div>
+    <h3>Nur eine Verbindung gleichzeitig</h3>
+    <p class="muted">Ausgewählte Benutzer und Gruppen können mit ihrem Konto nicht auf mehreren Geräten gleichzeitig schauen (DS-video-Apps und Weboberfläche).
+      Die erste aktive Verbindung hat Vorrang; jede weitere sieht keine Medien, bis dort für die Ruhezeit nichts mehr läuft (keine Wiedergabe, keine Bedienung), abgemeldet oder unter „Verbindungen“ getrennt wird.
+      „Niemand“ = keine Einschränkung. Administratoren sind ausgenommen.</p>
+    <div class="accrow"><span>Nur eine Verbindung für</span><div id="accSingle"></div></div>
+    <div class="accrow"><label for="accIdle">Ruhezeit – danach wird der Platz frei</label><span class="row"><input type="number" id="accIdle" min="1" max="240" step="1" inputmode="numeric" class="num"> Minuten</span></div>
+    <h3>Jugendschutz (FSK)</h3>
+    <p class="muted">Benutzer oder Gruppen mit Altersgrenze sehen nur Titel bis zu dieser FSK. Eine Regel für den Benutzer selbst gilt vor den Regeln seiner Gruppen; bei mehreren Gruppen gilt die strengste.
+      Die FSK kommt aus den Metadaten und lässt sich pro Titel in der Detailansicht von Hand setzen.</p>
+    <table class="tbl"><thead><tr><th>Benutzer / Gruppe</th><th>Höchstens</th><th>Titel ohne FSK-Angabe</th><th></th></tr></thead><tbody id="accRules"></tbody></table>
+    <div class="row wrap"><select id="accNewWho" aria-label="Benutzer oder Gruppe"></select><button type="button" id="accAdd" class="secondary">Regel hinzufügen</button></div>
+    <div class="row wrap" style="margin-top:14px"><button type="button" id="accSave">Benutzerrechte speichern</button><span id="accMsg" class="muted"></span></div>
+  </section>
+
+  <section data-panel="conns" class="card" hidden>
+    <div class="row between wrap"><h2>Verbindungen</h2><button type="button" id="connReload" class="secondary small">Aktualisieren</button></div>
+    <p class="muted">Angemeldete Geräte mit Aktivität in den letzten 30 Minuten (DS-video-Apps und Weboberfläche), neueste zuerst. Die Liste aktualisiert sich alle 10 Sekunden.
+      „Trennen“ meldet die Verbindung ab und bricht eine laufende Wiedergabe ab. Apps mit gespeichertem Passwort melden sich danach meist gleich neu an –
+      dafür das Gerät beim Trennen zusätzlich sperren: Es sieht dann bis zum Ende der Sperre keine Medien (gilt für dieses Konto auf diesem Gerät und dieser Adresse; andere Geräte bleiben frei).
+      Dauerhaft sperren: in DSM unter Systemsteuerung → Anwendungsberechtigungen.</p>
+    <div class="row wrap"><label for="connBlock">Beim Trennen zusätzlich sperren</label>
+      <select id="connBlock"><option value="0">nicht sperren</option><option value="15">15 Minuten</option><option value="30">30 Minuten</option><option value="60">1 Stunde</option><option value="120">2 Stunden</option><option value="360">6 Stunden</option><option value="1440">24 Stunden</option></select></div>
+    <div class="tblwrap"><table class="tbl conns"><thead><tr><th>Benutzer</th><th>Gerät</th><th>Zustand</th><th>Titel</th><th>Verbunden seit</th><th>Letzte Aktivität</th><th></th></tr></thead><tbody id="connRows"></tbody></table></div>
+    <p id="connMsg" class="muted"></p>
+    <div id="banBox" hidden>
+      <h3>Gesperrte Geräte</h3>
+      <div class="tblwrap"><table class="tbl conns"><thead><tr><th>Benutzer</th><th>Gerät</th><th>Gesperrt bis</th><th></th></tr></thead><tbody id="banRows"></tbody></table></div>
+    </div>
+  </section>
+
+  <section data-panel="settings" class="card" hidden>
+    <h2>Einstellungen</h2>
+    <form id="setForm">
+      <h3>Metadaten (Poster, Inhalt, IMDb)</h3>
+      <p class="muted">Funktioniert ohne Schlüssel: Wikidata, Wikipedia und TVmaze liefern Inhalte und Plakate, IMDb-Bewertungen kommen aus den offiziellen IMDb-Datensätzen. Die NAS braucht dafür Internetzugang.</p>
+      <label>TMDb-API-Schlüssel (optional, v3 oder v4-Lesetoken – mehr Plakate und Hintergrundbilder) <input name="tmdb_key" autocomplete="off" spellcheck="false" placeholder="leer = ohne Schlüssel"></label>
+      <label>OMDb-API-Schlüssel (optional) <input name="omdb_key" autocomplete="off" spellcheck="false" placeholder="leer = IMDb-Datensatz"></label>
+      <label>Sprache <select name="meta_language"><option value="de-DE">Deutsch</option><option value="en-US">Englisch</option><option value="fr-FR">Französisch</option><option value="it-IT">Italienisch</option><option value="es-ES">Spanisch</option></select></label>
+      <div class="row wrap"><button type="button" id="metaRefresh" class="secondary">Alle Metadaten neu laden</button><span id="metaState" class="muted"></span></div>
+
+      <h3>Wiedergabe und Umwandlung</h3>
+      <label>FFmpeg-Pfad (leer = automatisch, z.B. SynoCommunity-Paket „ffmpeg7“) <input name="ffmpeg" spellcheck="false" placeholder="/var/packages/ffmpeg7/target/bin/ffmpeg"></label>
+      <label>Gleichzeitige Umwandlungen <input name="max_transcodes" type="number" min="1" max="8" class="num"></label>
+      <label>Hardware-Beschleunigung <select name="hw_accel"><option value="auto">automatisch (VAAPI, falls verfügbar)</option><option value="off">aus</option></select></label>
+      <label class="check"><input type="checkbox" name="send_poster_mtime"> Poster-Zeitstempel an DS video senden (Hypothese – bei Absturz testweise aus)</label>
+
+      <button type="submit">Speichern</button> <span id="setMsg" class="muted"></span>
+    </form>
+  </section>
+
+  <section data-panel="log" class="card" hidden>
+    <div class="row between"><h2>Protokoll</h2><button id="reloadLog" class="secondary">Aktualisieren</button></div>
+    <pre id="logBox"></pre>
+  </section>
+</main>
+
+<!-- Detailansicht -->
+<div id="detail" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="dTitle">
+  <div class="sheet">
+    <button class="close" id="dClose" aria-label="Schließen">✕</button>
+    <div class="hero" id="dHero"></div>
+    <div class="dbody">
+      <img id="dPoster" class="dposter" alt="">
+      <div class="dinfo">
+        <h2 id="dTitle"></h2>
+        <div id="dFacts" class="facts"></div>
+        <div id="dRate" class="myrate"></div>
+        <p id="dTagline" class="tagline"></p>
+        <p id="dSummary"></p>
+        <p id="dTech" class="dtech"></p>
+        <div id="dPeople" class="people"></div>
+        <div id="dPlay" class="playrow"></div>
+        <div id="dEpisodes"></div>
+        <div id="dFiles"></div>
+        <div id="dAdmin" class="adminbox" hidden>
+          <h4>Titel</h4>
+          <form id="titleForm" class="row wrap">
+            <input name="title" id="dTitleIn" maxlength="200" placeholder="Titel (leer = automatisch)">
+            <button type="submit">Speichern</button>
+            <button type="button" id="dTitleReset" class="secondary">Automatisch</button>
+          </form>
+          <p id="dTitleMsg" class="muted"></p>
+          <h4>Metadaten korrigieren</h4>
+          <form id="assignForm" class="row wrap">
+            <input name="ref" placeholder="IMDb-ID (tt0068646), Wikidata (Q47703) oder TMDb-Nr." required>
+            <button type="submit">Zuordnen</button>
+            <button type="button" id="dRefresh" class="secondary">Neu laden</button>
+          </form>
+          <p id="assignMsg" class="muted"></p>
+          <h4>Jugendschutz</h4>
+          <div class="row wrap"><label>FSK <select id="dFsk"></select></label><span id="dFskMsg" class="muted"></span></div>
+          <div id="dDelBox" hidden>
+            <h4>Löschen</h4>
+            <div class="row wrap"><button type="button" id="dDelete" class="danger">Titel löschen</button><span id="dDelMsg" class="muted"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Ordnerauswahl -->
+<div id="picker" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="pkTitle">
+  <div class="sheet small">
+    <button class="close" id="pkClose" aria-label="Schließen">✕</button>
+    <div class="pk">
+      <h2 id="pkTitle">Ordner auswählen</h2>
+      <div class="pkpath"><button type="button" id="pkUp" class="secondary" aria-label="Eine Ebene höher">↑</button><code id="pkPath">Freigegebene Ordner</code></div>
+      <ul id="pkList" class="pklist"></ul>
+      <p id="pkInfo" class="muted"></p>
+      <div class="row wrap">
+        <label>Bibliothek <select id="pkType"></select></label>
+        <button type="button" id="pkAdd" disabled>Diesen Ordner hinzufügen</button>
+      </div>
+      <p id="pkMsg" class="err"></p>
+    </div>
+  </div>
+</div>
+
+<!-- Player -->
+<div id="player" class="overlay dark" hidden role="dialog" aria-modal="true" aria-label="Wiedergabe">
+  <div class="pwrap">
+    <div class="pbar"><span id="pTitle"></span><span id="pMode" class="badge"></span><button class="close" id="pClose" aria-label="Schließen">✕</button></div>
+    <video id="video" controls playsinline preload="auto"></video>
+    <p id="pMsg" class="pmsg"></p>
+  </div>
+</div>
+
+<script src="hls.light.min.js"></script>
+<script src="app.js"></script>
+<div id="pathPop" class="pathpop" hidden role="dialog" aria-label="Dateipfad"></div>
+</body>
+</html>

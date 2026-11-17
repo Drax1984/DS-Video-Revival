@@ -1,0 +1,21 @@
+{
+  "port-config": {
+    "protocol-file": "dsvideorevival.sc"
+  },
+  "web-config": {
+    "nginx-static-config": {
+      "enable": [
+        {
+          "type": "dsm",
+          "relpath": "nginx/dsm.conf"
+        }
+      ],
+      "disable": [
+        {
+          "type": "dsm",
+          "relpath": "nginx/dsm.conf"
+        }
+      ]
+    }
+  }
+}

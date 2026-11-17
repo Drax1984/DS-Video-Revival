@@ -1,0 +1,40 @@
+#!/bin/sh
+. "$(dirname "$0")/common"
+
+dir=$(arch_dir) || exit 1
+src="$PKG_DEST/bin/$dir/dsvr"
+if [ ! -f "$src" ]; then
+    echo "Binary für $dir fehlt im Paket." > "$SYNOPKG_TEMP_LOGFILE"
+    exit 1
+fi
+mv -f "$src" "$BIN" && chmod 755 "$BIN"
+# Nicht benötigte Architekturen entfernen.
+for d in "$PKG_DEST"/bin/*/; do
+    [ -d "$d" ] && rm -rf "$d"
+done
+
+if ! "$BIN" version >/dev/null 2>&1; then
+    echo "Binary startet nicht auf dieser NAS ($(uname -m))." > "$SYNOPKG_TEMP_LOGFILE"
+    exit 1
+fi
+
+# Konfiguration nur bei Erstinstallation anlegen; Updates behalten sie.
+port="${wizard_port:-5180}"
+if [ ! -f "$CONFIG" ]; then
+    "$BIN" init-config --config "$CONFIG" --port "$port" \
+        --upstream "${wizard_upstream:-http://127.0.0.1:5000}" \
+        --folders "${wizard_folders:-}" >> "$LOG_FILE" 2>&1 || {
+        echo "Konfiguration konnte nicht angelegt werden – Eingaben prüfen (Ordner: typ:/pfad;…)." > "$SYNOPKG_TEMP_LOGFILE"
+        exit 1
+    }
+    log_msg "Erstinstallation, Port $port"
+else
+    port=$(sed -n 's/.*"listen_http": *":\([0-9]*\)".*/\1/p' "$CONFIG" | head -n 1)
+    port="${port:-5180}"
+fi
+
+# Port in DSM-Menüeintrag übernehmen.
+if [ -f "$PKG_DEST/ui/config" ]; then
+    sed -i "s/\"port\": \"[0-9]*\"/\"port\": \"$port\"/" "$PKG_DEST/ui/config"
+fi
+exit 0

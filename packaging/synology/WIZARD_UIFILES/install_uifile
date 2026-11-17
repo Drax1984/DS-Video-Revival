@@ -1,0 +1,39 @@
+[
+  {
+    "step_title": "DS Video Revival – Einrichtung",
+    "items": [
+      {
+        "type": "textfield",
+        "desc": "DS video verbindet sich wie früher mit der normalen DSM-Adresse (IP, DynDNS oder eigene Domain – ohne Portangabe). DSM reicht die Aufrufe der App an dieses Paket weiter; DSM selbst bleibt unverändert auf seinen Ports und mit seinem Zertifikat. Dieses Paket ist eine unabhängige Neuentwicklung und kein Synology-Produkt.",
+        "subitems": [
+          {
+            "key": "wizard_upstream",
+            "desc": "DSM-Adresse für die Anmeldung (normalerweise unverändert)",
+            "defaultValue": "http://127.0.0.1:5000",
+            "validator": {
+              "allowBlank": false,
+              "regex": {
+                "expr": "/^https?:\\/\\/[A-Za-z0-9.:\\[\\]-]+\\/?$/",
+                "errorText": "z.B. http://127.0.0.1:5000"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "type": "textfield",
+        "desc": "Medienordner im Format typ:/pfad, mehrere durch ; getrennt. Typen: movie (Filme), tvshow (Serien), home_video. Später in der Verwaltung änderbar. WICHTIG: Danach dem Systembenutzer „dsvideorevival“ Leserechte auf den Freigaben geben (Systemsteuerung → Freigegebener Ordner → Bearbeiten → Berechtigungen → Systeminterner Benutzer).",
+        "subitems": [
+          {
+            "key": "wizard_folders",
+            "desc": "Medienordner",
+            "defaultValue": "movie:/volume1/video",
+            "validator": {
+              "allowBlank": true
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

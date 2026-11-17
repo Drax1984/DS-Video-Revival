@@ -1,0 +1,8 @@
+#!/bin/sh
+. "$(dirname "$0")/common"
+# Architektur vor der Installation prüfen.
+if ! arch_dir >/dev/null 2>&1; then
+    echo "Diese NAS-Architektur ($(uname -m)) wird nicht unterstützt." > "$SYNOPKG_TEMP_LOGFILE"
+    exit 1
+fi
+exit 0
