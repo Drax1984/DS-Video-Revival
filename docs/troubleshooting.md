@@ -15,4 +15,7 @@
 | Was fragt meine App an? | Verwaltung → Client-Kompatibilität → „Als JSON herunterladen“ und zurückmelden |
 | Paket-Zentrum: „Ungültiges Dateiformat“ beim manuellen Installieren, während der Port-Modus aktiv ist | bis 0.3.1 wurden Uploads über Port 5000 bei 8 MB abgeschnitten. Behoben in 0.3.2; zum Einspielen von 0.3.2 DSM direkt über `http://NAS-IP:5010` öffnen |
 | Paket-Update bricht ab: „Vorgang fehlgeschlagen … network error“ | DSM wurde über Port 5000 bedient, also durch dieses Paket – beim Update stoppt DSM das Paket und kappt damit die eigene Verbindung. DSM über `http://NAS-IP:5010` öffnen. Ab 0.3.3 leitet das Paket Browser automatisch dorthin weiter |
+| Weboberfläche nach Portänderung nicht erreichbar | DSM-Firewall erlaubt den neuen Port nicht, oder der Neustart fehlte. Port in `/var/packages/dsvideorevival/var/config.json` (`listen_http`) prüfen; das Paket im Paket-Zentrum stoppen und starten |
+| DSM-Hauptmenü öffnet nach Portänderung den alten Port | DSM im Browser neu laden; sonst das Paket im Paket-Zentrum stoppen und starten |
+| Jellyfin-Apps | siehe [jellyfin.md](jellyfin.md#fehlersuche) |
 | Protokoll | `/var/packages/dsvideorevival/var/dsvr.log` oder Verwaltung → Protokoll |

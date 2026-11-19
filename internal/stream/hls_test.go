@@ -31,6 +31,11 @@ func TestDecide(t *testing.T) {
 		{"a.avi", library.Probe{OK: true, VideoCodec: "mpeg4", AudioCodec: "mp3"}, CapsApple, ModeTranscode, false},
 		{"a.ts", library.Probe{OK: true, VideoCodec: "mpeg2video", AudioCodec: "mp2"}, CapsBrowser, ModeTranscode, false},
 		{"a.mkv", library.Probe{OK: true, VideoCodec: "h264", AudioCodec: "dts"}, CapsApple, ModeRemux, false},
+		// H.264 10 Bit kann kein Gerät per Hardware abspielen → umwandeln
+		{"a.mkv", library.Probe{OK: true, VideoCodec: "h264", VideoProfile: "High 10", PixFmt: "yuv420p10le", AudioCodec: "aac"}, CapsApple, ModeTranscode, true},
+		{"a.mp4", library.Probe{OK: true, VideoCodec: "h264", PixFmt: "yuv420p10le", AudioCodec: "aac"}, CapsBrowser, ModeTranscode, true},
+		{"a.mp4", library.Probe{OK: true, VideoCodec: "h264", VideoProfile: "High", PixFmt: "yuv420p", AudioCodec: "aac"}, CapsApple, ModeDirect, true},
+		{"a.mkv", library.Probe{OK: true, VideoCodec: "hevc", VideoProfile: "Main 10", PixFmt: "yuv420p10le", AudioCodec: "eac3"}, CapsApple, ModeRemux, true},
 	}
 	for _, c := range cases {
 		d := Decide(&c.p, c.path, c.caps)

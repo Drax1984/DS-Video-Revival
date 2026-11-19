@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0f1115">
+<title>DS Video Revival</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="bar" id="bar" hidden>
+  <button type="button" id="backBtn" class="back" hidden><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-t="Zurück"></span></button>
+  <a class="brand" href="#/"><img src="logo.webp" alt="" width="30" height="29"><span>DS Video Revival</span></a>
+  <form id="searchForm" class="search" role="search"><input id="q" type="search" autocomplete="off" data-ph="Suchen"></form>
+  <button type="button" id="logoutBtn" class="ghost small" data-t="Abmelden"></button>
+</header>
+<nav class="chips" id="chips" hidden></nav>
+
+<main id="main">
+  <section id="login" class="login" hidden>
+    <img src="logo.webp" alt="" width="72" height="70">
+    <h1>DS Video Revival</h1>
+    <p class="muted" id="srvName"></p>
+    <form id="loginForm">
+      <label><span data-t="Konto"></span><input name="user" autocomplete="username" autocapitalize="off" required></label>
+      <label><span data-t="Passwort"></span><input name="pw" type="password" autocomplete="current-password"></label>
+      <button type="submit" class="primary" data-t="Anmelden"></button>
+    </form>
+    <button type="button" id="qcBtn" class="ghost" data-t="Mit Quick Connect anmelden"></button>
+    <div id="qcBox" class="qc" hidden>
+      <p data-t="Code in der Weboberfläche von DS Video Revival unter „Jellyfin-Apps“ bestätigen:"></p>
+      <div class="code" id="qcCode"></div>
+      <p class="muted" data-t="Wartet auf Bestätigung …"></p>
+    </div>
+    <p class="err" id="loginErr" role="alert"></p>
+  </section>
+  <div id="view"></div>
+  <div id="dview" hidden></div>
+</main>
+
+<div id="player" class="player" hidden>
+  <div class="ptop"><span id="pTitle"></span><button type="button" id="pClose" class="ghost" data-t="Schließen"></button></div>
+  <video id="video" controls playsinline preload="auto"></video>
+  <p id="pMsg" class="pmsg"></p>
+  <pre id="pDiag" class="pdiag" hidden></pre>
+</div>
+
+<script src="hls.light.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

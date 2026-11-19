@@ -189,6 +189,12 @@ func (c *Client) proxyTransport() http.RoundTripper {
 
 // Call performs a server-side WebAPI call (form POST to entry.cgi).
 func (c *Client) Call(ctx context.Context, cgi string, params url.Values) (map[string]any, error) {
+	return c.CallFrom(ctx, cgi, params, "")
+}
+
+// CallFrom wie Call, mit der Adresse des eigentlichen Clients (X-Forwarded-For),
+// z.B. für Anmeldungen: DSMs Kontoschutz sieht dann den Client, nicht 127.0.0.1.
+func (c *Client) CallFrom(ctx context.Context, cgi string, params url.Values, clientIP string) (map[string]any, error) {
 	b := c.BaseURL()
 	target := *b
 	target.Path = strings.TrimRight(b.Path, "/") + "/webapi/" + cgi
@@ -200,6 +206,9 @@ func (c *Client) Call(ctx context.Context, cgi string, params url.Values) (map[s
 	}
 	req.Header.Set(LoopHeader, "1")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if clientIP != "" {
+		req.Header.Set("X-Forwarded-For", clientIP)
+	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, err

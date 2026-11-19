@@ -9,8 +9,10 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -24,6 +26,10 @@ import (
 //go:embed web
 var webFS embed.FS
 
+// Asset liefert eine Datei der Weboberfläche (z.B. hls.js und Logo für die
+// Mediathek der Jellyfin-Schnittstelle).
+func Asset(name string) ([]byte, error) { return webFS.ReadFile("web/" + name) }
+
 // Version is set by main.
 var Version = "dev"
 
@@ -36,12 +42,20 @@ type Handler struct {
 	scanCh  chan struct{}
 	mu      sync.Mutex
 	raw     map[string]rawToken
+	// Restart startet das Programm neu (gesetzt von main; nil = nicht möglich).
+	Restart func()
+	// runningWebPort: Port der Weboberfläche beim Start (für den Hinweis auf
+	// einen ausstehenden Neustart).
+	runningWebPort int
 }
 
 // New creates the admin handler. scanCh triggers a library scan.
 func New(s *vs.Server, cfgPath, logPath string, scanCh chan struct{}) *Handler {
 	sub, _ := fs.Sub(webFS, "web")
 	h := &Handler{S: s, CfgPath: cfgPath, LogPath: logPath, files: http.StripPrefix("/dsvr/", http.FileServer(http.FS(sub))), scanCh: scanCh, raw: map[string]rawToken{}}
+	if c := s.Cfg(); c != nil {
+		h.runningWebPort = portOf(c.ListenHTTP)
+	}
 	go func() {
 		for range time.Tick(time.Hour) {
 			h.gcRaw()
@@ -62,13 +76,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !strings.HasPrefix(r.URL.Path, "/dsvr/api/") {
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:"+sameHostConnect(r))
 		w.Header().Set("Cache-Control", "no-cache") // nach Updates sofort die neue Oberfläche laden
 		h.files.ServeHTTP(w, r)
 		return
 	}
 	if r.URL.Path == "/dsvr/api/health" {
-		writeJSON(w, map[string]any{"ok": true, "version": Version})
+		// started: erkennt die Weboberfläche nach „Neu starten“ den neuen Prozess.
+		writeJSON(w, map[string]any{"ok": true, "version": Version, "started": h.S.Started.Unix()})
 		return
 	}
 	// Admin-Zugriff: sid im Header (kein Cookie → CSRF-sicher).
@@ -104,7 +119,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"account": sess.Account, "admin": h.S.IsAppAdmin(sess), "dsm_admin": h.S.Auth.IsAdmin(sess), "version": Version,
 			"tmdb": h.S.Cfg().TMDbKey != "", "meta": meta, "ffmpeg": h.S.HLS != nil && h.S.HLS.FFmpeg != "",
 			"aac": h.S.HLS.CanEncodeAAC(), "h264": h.S.HLS.CanEncodeH264(), "libraries": libsOrEmpty(h.S.Cfg().Libraries),
-			"blocked": blocked})
+			"blocked": blocked, "jellyfin": h.S.Jellyfin != nil && h.S.Cfg().JellyfinEnabled})
 		return
 	case "/dsvr/api/library":
 		h.library(w, r, sess)
@@ -120,6 +135,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case "/dsvr/api/progress":
 		h.progress(w, r, sess)
+		return
+	case "/dsvr/api/jellyfin", "/dsvr/api/jellyfin/quickconnect":
+		h.jellyfin(w, r, sess)
 		return
 	}
 	if !h.S.IsAppAdmin(sess) {
@@ -154,6 +172,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.logTail(w)
 	case "/dsvr/api/settings":
 		h.settings(w, r)
+	case "/dsvr/api/restart":
+		h.restart(w, r, sess)
 	case "/dsvr/api/portmode":
 		h.portmode(w, r, sid)
 	case "/dsvr/api/cert":
@@ -329,4 +349,22 @@ func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+var reHostname = regexp.MustCompile(`^([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])$`)
+
+// sameHostConnect: „Neu starten“ mit Portwechsel fragt den neuen Port an –
+// erlaubt sind Verbindungen zum selben Rechner auf beliebigem Port.
+func sameHostConnect(r *http.Request) string {
+	host := r.Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+		if strings.Contains(host, ":") {
+			host = "[" + host + "]"
+		}
+	}
+	if !reHostname.MatchString(host) {
+		return ""
+	}
+	return "; connect-src 'self' http://" + host + ":* https://" + host + ":*"
 }

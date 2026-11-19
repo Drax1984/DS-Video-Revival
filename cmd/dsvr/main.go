@@ -38,6 +38,7 @@ import (
 	"dsvideorevival/internal/auth"
 	"dsvideorevival/internal/capture"
 	"dsvideorevival/internal/config"
+	"dsvideorevival/internal/jellyfin"
 	"dsvideorevival/internal/library"
 	"dsvideorevival/internal/listen"
 	"dsvideorevival/internal/metadata"
@@ -170,7 +171,16 @@ func cmdServe(args []string) error {
 	srv.Meta.SetClient(metadata.NewClient(cfg.TMDbKey, cfg.OMDbKey, cfg.MetaLanguage, srv.Meta.CacheDir))
 	go srv.Meta.Run()
 	scanCh := make(chan struct{}, 1)
-	srv.AdminHandler = admin.New(srv, *cfgPath, *logPath, scanCh)
+	adm := admin.New(srv, *cfgPath, *logPath, scanCh)
+	admin.BridgePort, _ = strconv.Atoi(DSMBridgePort)
+	restartCh := make(chan struct{}, 1)
+	adm.Restart = func() {
+		select {
+		case restartCh <- struct{}{}:
+		default:
+		}
+	}
+	srv.AdminHandler = adm
 
 	go scanLoop(srv, scanCh)
 	scanCh <- struct{}{}
@@ -187,6 +197,9 @@ func cmdServe(args []string) error {
 		}
 		return selfCert, selfKey
 	}
+	// Jellyfin-Schnittstelle (eigener Port, zusätzlich /jellyfin auf diesem Server).
+	jf := jellyfin.New(srv, cfg.DataDir, certs)
+	srv.Jellyfin = jf
 	lm := listen.New(srv, certs)
 	srv.Listen = lm
 	// Wartungs-/Standardport: muss sofort klappen.
@@ -216,12 +229,38 @@ func cmdServe(args []string) error {
 			}
 		}()
 	}
+	jf.Apply()
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
-	s := <-sig
-	log.Printf("Signal %v – beende", s)
-	_ = lib.Flush()
-	lm.CloseAll()
+	shutdown := func() {
+		_ = lib.Flush()
+		jf.Close()
+		srv.Offline.Shutdown()
+		srv.HLS.StopAll()
+		lm.CloseAll()
+	}
+	select {
+	case s := <-sig:
+		log.Printf("Signal %v – beende", s)
+		shutdown()
+		return nil
+	case <-restartCh:
+		log.Printf("Neustart über die Weboberfläche")
+		shutdown()
+		return restartSelf()
+	}
+}
+
+// restartSelf ersetzt den laufenden Prozess durch einen neuen (gleiche PID –
+// DSM und das Startskript sehen das Paket weiter als gestartet).
+func restartSelf() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("Neustart: %w", err)
+	}
+	if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
+		return fmt.Errorf("Neustart: %w", err)
+	}
 	return nil
 }
 

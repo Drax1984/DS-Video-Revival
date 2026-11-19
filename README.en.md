@@ -19,9 +19,13 @@ address as DSM, no port needed, sign-in with your DSM account.
 - Movies, TV shows, home videos and TV recordings, multiple libraries – posters, backdrops, plot, cast, age rating, IMDb rating
 - Playback: direct, HLS remux or transcoded to H.264/AAC (FFmpeg), audio tracks, subtitles, resume, "Recently watched", folder view
 - Offline download and offline conversion in the apps
-- Web interface (German): media library in the browser, metadata without API key (Wikidata, Wikipedia, TVmaze, IMDb datasets; TMDb optional),
+- Web interface in **English or German** (automatic by browser/system language, or chosen): media library in the browser, metadata without API key (Wikidata, Wikipedia, TVmaze, IMDb datasets; TMDb optional),
   user permissions (folders, age limits, downloads, one connection at a time), active connections with disconnect/temporary block,
-  folder view with duplicate finder for DSM administrators
+  folder view with duplicate finder for DSM administrators, configurable web interface port with a restart button
+- **Jellyfin apps** (optional, since 0.6.6): a built-in Jellyfin-compatible interface lets Infuse, Swiftfin, Jellyfin for Android TV,
+  Findroid or Streamyfin use the same library with the same permissions and playback positions; sign-in with your DSM account or
+  Quick Connect (also with two-factor sign-in) – a second option in case the DS video apps disappear from the app stores.
+  The official “Jellyfin” mobile app shows a simple built-in DS Video Revival library (since 0.6.6)
 
 ## Requirements
 
@@ -53,6 +57,9 @@ Marvell Armada 38x → armv7. See also Synology's list
 6. DS video app: same address as for DSM/DS file (IP, domain or QuickConnect ID, **no port**), DSM account – done.
 
 Update: install the newer `.spk` the same way; settings and library are kept.
+
+Jellyfin apps: Settings → *Jellyfin interface* → turn on (default port 8096). In the app use `http://NAS-IP:8096` in your home
+network or `https://NAS-IP:5001/jellyfin` via DSM. Details (German): [docs/jellyfin.md](docs/jellyfin.md).
 
 **DSM updates:** you can update your Synology's firmware (DSM) as usual. There is no need to
 uninstall DS Video Revival before or reinstall it afterwards – the package starts again by itself.

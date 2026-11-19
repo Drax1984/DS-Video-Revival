@@ -110,6 +110,23 @@ type Config struct {
 
 	// Poster-Zeitstempel an Apps melden (Hypothese, siehe docs/protocol.md)
 	SendPosterMtime bool `json:"send_poster_mtime"`
+
+	// Jellyfin-Schnittstelle für Jellyfin-Apps (Infuse, Swiftfin, Jellyfin
+	// für Android TV …): eigener Port (Standard 8096) und zusätzlich unter
+	// /jellyfin auf dem Port der Weboberfläche bzw. über DSM (Port 5000/5001).
+	JellyfinEnabled bool `json:"jellyfin_enabled"`
+	JellyfinPort    int  `json:"jellyfin_port,omitempty"` // 0 = 8096
+}
+
+// JellyfinDefaultPort: Standardport von Jellyfin (die Apps schlagen ihn vor).
+const JellyfinDefaultPort = 8096
+
+// JellyfinListenPort: eingestellter oder Standardport.
+func (c Config) JellyfinListenPort() int {
+	if c.JellyfinPort > 0 {
+		return c.JellyfinPort
+	}
+	return JellyfinDefaultPort
 }
 
 // Defaults returns a configuration with safe defaults.
@@ -212,6 +229,9 @@ func (c Config) Validate() error {
 				return fmt.Errorf("Ordner %s: Typ %s passt nicht zur Bibliothek (%s)", f.Path, f.Type, t)
 			}
 		}
+	}
+	if c.JellyfinPort < 0 || c.JellyfinPort > 65535 {
+		return errors.New("jellyfin_port ungültig")
 	}
 	switch c.Advertise {
 	case "all", "implemented":

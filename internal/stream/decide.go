@@ -76,14 +76,14 @@ func decide(p *library.Probe, path string, c Caps) Decision {
 		}
 		return Decision{Mode: ModeTranscode, Reason: "keine Analyse möglich"}
 	}
-	vOK := p.VideoCodec == "" || c.Video[p.VideoCodec]
+	vOK := p.VideoCodec == "" || c.Video[p.VideoCodec] && !H264Exotic(p)
 	aOK := p.AudioCodec == "" || c.Audio[p.AudioCodec]
 	if c.Containers[container] && vOK && aOK {
 		return Decision{Mode: ModeDirect, CopyVideo: true, CopyAudio: true, Reason: "Container/Codecs vom Client unterstützt"}
 	}
 	copyAudio := p.AudioCodec == "" || HLSAudioCopy(p.AudioCodec, c)
 	// HLS (fMP4) kann H.264 und HEVC tragen; VP9/AV1 nur bedingt → umwandeln.
-	hlsVideo := p.VideoCodec == "h264" || (p.VideoCodec == "hevc" && c.Video["hevc"])
+	hlsVideo := (p.VideoCodec == "h264" && !H264Exotic(p)) || (p.VideoCodec == "hevc" && c.Video["hevc"])
 	if hlsVideo {
 		d := Decision{Mode: ModeRemux, CopyVideo: true, CopyAudio: copyAudio, HEVC: p.VideoCodec == "hevc"}
 		d.Reason = "Container " + container + " → HLS"
@@ -94,7 +94,40 @@ func decide(p *library.Probe, path string, c Caps) Decision {
 		}
 		return d
 	}
+	if p.VideoCodec == "h264" {
+		return Decision{Mode: ModeTranscode, CopyAudio: copyAudio, Reason: "Video H.264 " + exoticLabel(p) + " → H.264 8 Bit"}
+	}
 	return Decision{Mode: ModeTranscode, CopyAudio: copyAudio, Reason: "Video " + p.VideoCodec + " → H.264"}
+}
+
+// H264Exotic: H.264 mit mehr als 8 Bit oder ohne 4:2:0 (z.B. „High 10“,
+// „High 4:2:2“). Das können die Hardware-Decoder von iPhone, iPad, Apple TV,
+// Android und Browsern nicht – solche Videos werden umgewandelt.
+func H264Exotic(p *library.Probe) bool {
+	if p == nil || p.VideoCodec != "h264" {
+		return false
+	}
+	return exoticLabel(p) != ""
+}
+
+func exoticLabel(p *library.Probe) string {
+	prof := strings.ToLower(p.VideoProfile)
+	switch {
+	case strings.Contains(prof, "4:4:4"):
+		return "4:4:4"
+	case strings.Contains(prof, "4:2:2"):
+		return "4:2:2"
+	case strings.Contains(prof, "10"):
+		return "10 Bit"
+	}
+	pf := strings.ToLower(p.PixFmt)
+	switch {
+	case pf == "" || pf == "yuv420p" || pf == "yuvj420p" || pf == "nv12":
+		return ""
+	case strings.Contains(pf, "10") || strings.Contains(pf, "12"):
+		return "10 Bit"
+	}
+	return pf
 }
 
 // CapsFor maps a DS-video hls_remux device string or browser hint to caps.

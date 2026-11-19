@@ -55,7 +55,9 @@ werden an das Paket gereicht:
 
 - `query.cgi` mit User-Agent `Synology-DS_video…` → Paket (es meldet die
   Video-Station-APIs unter `/webapi/_dsvr/…`),
-- alles unter `/webapi/_dsvr/` → Paket (Port 5180, intern).
+- alles unter `/webapi/_dsvr/` → Paket (Port 5180, intern),
+- ab 0.6.6 alles unter `/jellyfin/` → Paket (Jellyfin-Schnittstelle, nur wenn
+  eingeschaltet; siehe [jellyfin.md](jellyfin.md)).
 
 Anmeldung, Zertifikat, Router, Reverse-Proxy (z.B. Nginx Proxy Manager →
 DSM) bleiben wie bisher. In DS video genügt die gleiche Adresse wie in DS file.
@@ -101,7 +103,10 @@ ab 0.5.28 im Paket entsprechend eingestellt.
 ## 5. Firewall
 
 Die DSM-Firewall wird **nicht** automatisch geändert. Der Dienst
-„DS Video Revival“ ist in der Firewall-Dienstliste auswählbar.
+„DS Video Revival“ ist in der Firewall-Dienstliste auswählbar (Port 5180).
+Wer den Port der Weboberfläche ändert oder die Jellyfin-Schnittstelle nutzt,
+erlaubt bei aktiver Firewall zusätzlich diesen Port (Jellyfin: TCP 8096,
+Suche im Heimnetz UDP 7359).
 
 ## Dateien
 
@@ -113,6 +118,7 @@ Die DSM-Firewall wird **nicht** automatisch geändert. Der Dienst
 | `…/var/unhandled.json` | nicht implementierte Client-Aufrufe (nur Parameternamen) |
 | `…/var/dsvr.log` | Protokoll (rotiert bei 5 MB) |
 | `…/var/offline/` | Offline-Umwandlungen (MP4-Dateien, werden nach 7 Tagen gelöscht) |
+| `…/var/jellyfin.json` | Jellyfin-Schnittstelle: angemeldete Geräte (nur SHA-256 der Tokens), Favoriten, Ansichtseinstellungen der Apps |
 
 ## Update / Rollback / Deinstallation
 
@@ -210,3 +216,22 @@ alle Inhalte (Freigaben und Altersgrenzen gelten für sie nicht).
 - **Trennen** meldet die Verbindung ab (die Sitzung bleibt auch nach einem Paketneustart ungültig) und bricht eine laufende Wiedergabe bzw. einen Download ab. Apps mit gespeichertem Passwort können sich danach neu anmelden – dauerhaft sperren lässt sich ein Konto in DSM unter Systemsteuerung → Anwendungsberechtigungen.
 - Ab 0.5.38: **Ruhezeit** einstellbar (Benutzerrechte, 1–240 Minuten, Standard 5). **Trennen mit Sperre** (Verbindungen → „Beim Trennen zusätzlich sperren“: 15 Min. bis 24 Std.): Das Gerät – dieses Konto auf diesem Gerät und dieser Adresse – sieht bis zum Ende der Sperre keine Medien, auch nach erneuter Anmeldung; andere Geräte bleiben frei. Gesperrte Geräte stehen unter „Gesperrte Geräte“ und lassen sich vorzeitig freigeben. Sperren gelten bis zum nächsten Neustart des Pakets.
 - Protokoll: `verbindungen: "konto" ist schon auf … aktiv – … sieht keine Medien`, `… – jetzt … (vorher …, ruhte seit …)` und `… hat die Verbindung von "konto" getrennt`.
+
+## Sprache der Weboberfläche (ab 0.6.6)
+
+- Oben rechts neben dem Benutzernamen: **Automatisch**, **Deutsch** oder **English**.
+- „Automatisch“ richtet sich nach der Sprache des Browsers bzw. des Betriebssystems: Deutsch, wenn diese Deutsch ist, sonst Englisch.
+- Die Wahl gilt je Browser (gespeichert im Browser) und gleich auf der Anmeldeseite. Die Sprache der Inhalte – Beschreibungen, Titel aus den Metadaten – stellt man getrennt davon unter Einstellungen → „Sprache der Inhalte (Metadaten)“ ein. Die Menüs der DS-video-Apps folgen der Sprache des Geräts.
+
+## Port der Weboberfläche und Neustart (ab 0.6.6, Administratoren)
+
+- Einstellungen → **Weboberfläche** → „Port der Weboberfläche“ (Standard 5180, erlaubt 1024–65535, nicht 5000/5001 und kein schon belegter Port).
+- Die Änderung wird nach einem **Neustart** wirksam: Einstellungen → **Neustart** → „DS Video Revival neu starten“. Die Weboberfläche wechselt danach selbst zum neuen Port; dort neu anmelden. Laufende Wiedergaben brechen beim Neustart ab, eine laufende Offline-Umwandlung beginnt danach von vorn.
+- Der Eintrag im DSM-Hauptmenü wird auf den neuen Port umgestellt. Öffnet er noch den alten Port, DSM im Browser neu laden; hilft das nicht, das Paket im Paket-Zentrum einmal stoppen und starten.
+- Die DS-video-Apps sind davon nicht betroffen: Sie verbinden sich weiter über die DSM-Adresse. Intern nutzt DSMs Webserver dafür immer 127.0.0.1:5180.
+- Bei aktiver DSM-Firewall den neuen Port erlauben.
+- Der Neustart lässt sich auch ohne Portänderung nutzen, z.B. nach einem FFmpeg-Update.
+
+## Jellyfin-Apps (ab 0.6.6)
+
+Infuse, Swiftfin, Jellyfin für Android TV, Findroid und Streamyfin können die Mediathek über die eingebaute Jellyfin-Schnittstelle nutzen – mit denselben Rechten und Wiedergabepositionen. Einschalten unter Einstellungen → Jellyfin-Schnittstelle; Adressen, Quick Connect und angemeldete Geräte stehen danach im Reiter **Jellyfin-Apps**. Ausführlich: [jellyfin.md](jellyfin.md).

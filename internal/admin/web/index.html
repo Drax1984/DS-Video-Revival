@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DS Video Revival</title>
 <link rel="stylesheet" href="style.css">
+<script src="i18n.js"></script>
+<script src="lang-en.js"></script>
 </head>
 <body>
 <header class="top">
@@ -16,10 +18,13 @@
     <button data-tab="folders" data-admin>Medienordner</button>
     <button data-tab="access" data-admin>Benutzerrechte</button>
     <button data-tab="conns" data-admin>Verbindungen</button>
+    <button data-tab="jellyfin" data-jf hidden>Jellyfin-Apps</button>
     <button data-tab="settings" data-admin>Einstellungen</button>
     <button data-tab="log" data-admin>Protokoll</button>
   </nav>
-  <div class="whobox"><span id="who" class="muted"></span><button type="button" id="logout" class="secondary small" hidden>Abmelden</button></div>
+  <div class="whobox"><span id="who" class="muted"></span>
+    <select id="langSel" class="small" aria-label="Sprache" title="Sprache der Oberfläche"><option value="auto">Automatisch</option><option value="de" translate="no">Deutsch</option><option value="en" translate="no">English</option></select>
+    <button type="button" id="logout" class="secondary small" hidden>Abmelden</button></div>
 </header>
 
 <main>
@@ -135,7 +140,7 @@
 
   <section data-panel="conns" class="card" hidden>
     <div class="row between wrap"><h2>Verbindungen</h2><button type="button" id="connReload" class="secondary small">Aktualisieren</button></div>
-    <p class="muted">Angemeldete Geräte mit Aktivität in den letzten 30 Minuten (DS-video-Apps und Weboberfläche), neueste zuerst. Die Liste aktualisiert sich alle 10 Sekunden.
+    <p class="muted">Angemeldete Geräte mit Aktivität in den letzten 30 Minuten (DS-video-Apps, Jellyfin-Apps und Weboberfläche), neueste zuerst. Die Liste aktualisiert sich alle 10 Sekunden.
       „Trennen“ meldet die Verbindung ab und bricht eine laufende Wiedergabe ab. Apps mit gespeichertem Passwort melden sich danach meist gleich neu an –
       dafür das Gerät beim Trennen zusätzlich sperren: Es sieht dann bis zum Ende der Sperre keine Medien (gilt für dieses Konto auf diesem Gerät und dieser Adresse; andere Geräte bleiben frei).
       Dauerhaft sperren: in DSM unter Systemsteuerung → Anwendungsberechtigungen.</p>
@@ -149,6 +154,23 @@
     </div>
   </section>
 
+  <section data-panel="jellyfin" class="card" hidden>
+    <div class="row between wrap"><h2>Jellyfin-Apps</h2><button type="button" id="jfReload" class="secondary small">Aktualisieren</button></div>
+    <p class="muted">Über die Jellyfin-Schnittstelle laufen auch Jellyfin-Apps mit dieser Mediathek – mit denselben Benutzerrechten, Wiedergabepositionen und „Zuletzt gesehen“ wie in den DS-video-Apps.
+      Geeignet sind z.B. Infuse (iPhone, iPad, Apple TV, Mac), Swiftfin (iPhone, iPad, Apple TV), Jellyfin für Android TV und Fire TV, Findroid oder Streamyfin (Android).
+      Die offizielle App „Jellyfin“ für iPhone und Android-Smartphones zeigt eine einfache Mediathek von DS Video Revival an (Startseite, Bibliotheken, Suche, Wiedergabe) – mehr Komfort bieten Swiftfin (kostenlos) oder Infuse.</p>
+    <h3>Server-Adresse für die App</h3>
+    <div id="jfAddrs" class="jfaddrs"></div>
+    <p class="muted">Anmelden mit DSM-Konto und Passwort. Konten mit Zwei-Faktor-Anmeldung (oder wer auf dem Fernseher kein Passwort tippen möchte) nutzen Quick Connect.</p>
+    <h3>Quick Connect</h3>
+    <p class="muted">In der App „Quick Connect“ wählen und den angezeigten sechsstelligen Code hier bestätigen – die App ist dann mit deinem Konto angemeldet.</p>
+    <form id="qcForm" class="row wrap"><input id="qcCode" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="Code (6 Ziffern)" aria-label="Quick-Connect-Code" class="num6"><button type="submit">Bestätigen</button><span id="qcMsg" class="muted" role="status"></span></form>
+    <h3>Angemeldete Geräte</h3>
+    <p class="muted">„Abmelden“ meldet die App auf dem Gerät ab – dort ist dann eine neue Anmeldung nötig.</p>
+    <div class="tblwrap"><table class="tbl conns"><thead><tr><th>Benutzer</th><th>Gerät</th><th>Angemeldet seit</th><th>Zuletzt aktiv</th><th></th></tr></thead><tbody id="jfDevRows"></tbody></table></div>
+    <p id="jfDevMsg" class="muted"></p>
+  </section>
+
   <section data-panel="settings" class="card" hidden>
     <h2>Einstellungen</h2>
     <form id="setForm">
@@ -156,7 +178,7 @@
       <p class="muted">Funktioniert ohne Schlüssel: Wikidata, Wikipedia und TVmaze liefern Inhalte und Plakate, IMDb-Bewertungen kommen aus den offiziellen IMDb-Datensätzen. Die NAS braucht dafür Internetzugang.</p>
       <label>TMDb-API-Schlüssel (optional, v3 oder v4-Lesetoken – mehr Plakate und Hintergrundbilder) <input name="tmdb_key" autocomplete="off" spellcheck="false" placeholder="leer = ohne Schlüssel"></label>
       <label>OMDb-API-Schlüssel (optional) <input name="omdb_key" autocomplete="off" spellcheck="false" placeholder="leer = IMDb-Datensatz"></label>
-      <label>Sprache <select name="meta_language"><option value="de-DE">Deutsch</option><option value="en-US">Englisch</option><option value="fr-FR">Französisch</option><option value="it-IT">Italienisch</option><option value="es-ES">Spanisch</option></select></label>
+      <label>Sprache der Inhalte (Metadaten) <select name="meta_language"><option value="de-DE">Deutsch</option><option value="en-US">Englisch</option><option value="fr-FR">Französisch</option><option value="it-IT">Italienisch</option><option value="es-ES">Spanisch</option></select></label>
       <div class="row wrap"><button type="button" id="metaRefresh" class="secondary">Alle Metadaten neu laden</button><span id="metaState" class="muted"></span></div>
 
       <h3>Wiedergabe und Umwandlung</h3>
@@ -165,7 +187,22 @@
       <label>Hardware-Beschleunigung <select name="hw_accel"><option value="auto">automatisch (VAAPI, falls verfügbar)</option><option value="off">aus</option></select></label>
       <label class="check"><input type="checkbox" name="send_poster_mtime"> Poster-Zeitstempel an DS video senden (Hypothese – bei Absturz testweise aus)</label>
 
-      <button type="submit">Speichern</button> <span id="setMsg" class="muted"></span>
+      <h3>Jellyfin-Schnittstelle</h3>
+      <p class="muted">Für Jellyfin-Apps wie Infuse, Swiftfin oder Jellyfin für Android TV – z.B. falls die DS-video-Apps einmal nicht mehr erhältlich sind. Gleiche Bibliothek, Benutzerrechte und Wiedergabepositionen; Anmeldung mit dem DSM-Konto oder per Quick Connect.
+        Erreichbar unter dem Port unten und über DSM unter <code>/jellyfin</code> (z.B. <code>https://NAS:5001/jellyfin</code>). Die DSM-Firewall muss den Port erlauben, falls sie aktiv ist.</p>
+      <label class="check"><input type="checkbox" name="jellyfin_enabled"> Jellyfin-Schnittstelle einschalten</label>
+      <label>Port der Jellyfin-Schnittstelle (Standard 8096) <input name="jellyfin_port" type="number" min="1024" max="65535" class="num"></label>
+
+      <h3>Weboberfläche</h3>
+      <p class="muted">Port, unter dem diese Weboberfläche erreichbar ist (Standard 5180). Die DS-video-Apps sind davon nicht betroffen – sie verbinden sich weiter über die DSM-Adresse.
+        Eine Änderung wird nach einem Neustart wirksam; danach unter dem neuen Port neu anmelden. Die DSM-Firewall muss den Port erlauben, falls sie aktiv ist.</p>
+      <label>Port der Weboberfläche <input name="web_port" type="number" min="1024" max="65535" class="num"></label>
+
+      <div class="row wrap"><button type="submit">Speichern</button> <span id="setMsg" class="muted"></span></div>
+
+      <h3>Neustart</h3>
+      <p class="muted">Startet DS Video Revival neu, z.B. nach einer Portänderung. Laufende Wiedergaben brechen dabei ab.</p>
+      <div class="row wrap"><button type="button" id="restartBtn" class="secondary">DS Video Revival neu starten</button><span id="restartMsg" class="muted" role="status"></span></div>
     </form>
   </section>
 

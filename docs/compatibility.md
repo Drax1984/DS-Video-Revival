@@ -1,6 +1,6 @@
 # Kompatibilität
 
-Stand: 0.5.39. ✔ = im Feldtest mit der Original-App bestätigt.
+Stand: 0.6.6. ✔ = im Feldtest mit der Original-App bestätigt.
 
 ## Clients
 
@@ -14,7 +14,22 @@ Stand: 0.5.39. ✔ = im Feldtest mit der Original-App bestätigt.
 | Weboberfläche (Chrome/Edge/Safari/Firefox, Desktop und Smartphone) | ✔ | ✔ | ✔ | Verwaltung |
 
 Die Original-Weboberfläche von Video Station ist proprietär und wird nicht nachgebaut;
-stattdessen gibt es die eigene Weboberfläche (DSM-Hauptmenü → *DS Video Revival*).
+stattdessen gibt es die eigene Weboberfläche (DSM-Hauptmenü → *DS Video Revival*), auf Deutsch oder Englisch.
+
+## Jellyfin-Apps (ab 0.6.6, Jellyfin-Schnittstelle)
+
+Geprüft mit automatischen Tests gegen die Datenmodelle der Jellyfin-SDK (Stand November 2026,
+Server-Version 12.x); Feldtests mit den Apps stehen noch aus – Rückmeldungen willkommen.
+
+| App | Erwartung |
+|---|---|
+| Infuse (iOS, tvOS, macOS) | Anmeldung, Bibliothek, Direktwiedergabe, Fortsetzen |
+| Swiftfin (iOS, tvOS) | Anmeldung (auch Quick Connect), Bibliothek, Wiedergabe direkt und umgewandelt |
+| Jellyfin für Android TV / Fire TV | Anmeldung (auch Quick Connect, Suche im Heimnetz), Bibliothek, Wiedergabe |
+| Findroid, Streamyfin (Android) | Anmeldung, Bibliothek, Wiedergabe, Download |
+| Jellyfin (offizielle App iOS/Android) | ✔ iPhone: Anmeldung (lokal http, extern https über DSM), Mediathek und Wiedergabe – die App zeigt die einfache Mediathek von DS Video Revival |
+
+Details: [jellyfin.md](jellyfin.md)
 
 ## Server
 

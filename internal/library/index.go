@@ -723,6 +723,17 @@ func (ix *Index) SetWatch(account string, fileID, pos int) error {
 	return ix.saveLocked()
 }
 
+// ClearWatch entfernt die Wiedergabeposition (z.B. „als nicht gesehen markieren“).
+func (ix *Index) ClearWatch(account string, fileID int) error {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	delete(ix.data.Watch[account], fileID)
+	if account != "" {
+		delete(ix.data.Watch[""], fileID) // Position aus Versionen vor der Benutzererkennung
+	}
+	return ix.saveLocked()
+}
+
 // SetRating stores the user's own rating (1–10, 0 = löschen) for "kind:id".
 func (ix *Index) SetRating(account, key string, v float64) error {
 	ix.mu.Lock()

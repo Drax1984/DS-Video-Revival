@@ -34,6 +34,13 @@ Anmeldung über das DSM-Konto.
 - **Verbindungen:** aktive Geräte sehen, trennen und optional zeitweise sperren
 - **Ordneransicht** (DSM-Administratoren): Dateipfade, Doppelgänger-Suche (mit „Ignorieren“), Löschen (Papierkorb), Sprung in die File Station
 - Titel umbenennen und löschen, Gruppen, eigene Administratoren
+- Oberfläche auf **Deutsch oder Englisch** (automatisch nach Browser/System oder fest gewählt)
+- Port der Weboberfläche einstellbar, **Neustart** per Knopf
+
+**Jellyfin-Apps** (optional, ab 0.6.6)
+- Eingebaute Jellyfin-Schnittstelle: Infuse, Swiftfin, Jellyfin für Android TV, Findroid oder Streamyfin nutzen dieselbe Mediathek – mit denselben Benutzerrechten und Wiedergabepositionen
+- Anmeldung mit DSM-Konto oder per Quick Connect (auch bei Zwei-Faktor-Anmeldung)
+- Gedacht als zweites Standbein, falls die DS-video-Apps einmal nicht mehr erhältlich sind – Details: [docs/jellyfin.md](docs/jellyfin.md)
 
 ## Voraussetzungen
 
@@ -76,7 +83,7 @@ Ein falsches Paket lässt sich zwar installieren, startet aber nicht – dann ei
 6. DS-video-App: dieselbe Adresse wie für DSM bzw. DS file (IP, Domain oder QuickConnect-ID, **ohne Port**), DSM-Konto, fertig.
 
 Ausführlich – Fernzugriff, Reverse-Proxy (z.B. Nginx Proxy Manager), Firewall, Benutzerrechte:
-[**docs/installation.md**](docs/installation.md) · Probleme: [docs/troubleshooting.md](docs/troubleshooting.md)
+[**docs/installation.md**](docs/installation.md) · Jellyfin-Apps: [docs/jellyfin.md](docs/jellyfin.md) · Probleme: [docs/troubleshooting.md](docs/troubleshooting.md)
 
 ## Update
 
@@ -91,7 +98,8 @@ das Paket startet nach dem Update wieder von selbst, die Apps verbinden sich wie
 
 | Version | Datum | |
 |---|---|---|
-| **0.5.42** | 17.11.2026 | Erste Veröffentlichung |
+| **0.6.6** | 19.11.2026 | Jellyfin-Apps (Schnittstelle und Mediathek für die App „Jellyfin“), Oberfläche Deutsch/Englisch, Port einstellbar mit Neustart |
+| 0.5.42 | 17.11.2026 | Erste Veröffentlichung |
 
 Änderungen: [**CHANGELOG.md**](CHANGELOG.md)
 
@@ -103,6 +111,8 @@ das Paket startet nach dem Update wieder von selbst, die Apps verbinden sich wie
 | DS video Android TV | ✔ Anmeldung, Bibliothek, Wiedergabe |
 | DS video Android (Smartphone) | ✔ Anmeldung, Bibliothek, Wiedergabe, Offline-Download |
 | DS video Apple TV / Fire TV | Rückmeldungen willkommen |
+| Jellyfin-Apps (Infuse, Swiftfin, Jellyfin für Android TV, Findroid, Streamyfin) | neu in 0.6.6 – Rückmeldungen willkommen ([docs/jellyfin.md](docs/jellyfin.md)) |
+| App „Jellyfin“ (iPhone) | ✔ Anmeldung lokal und extern, Mediathek und Wiedergabe |
 | Webbrowser (Weboberfläche) | ✔ Desktop und Smartphone |
 
 Details: [docs/compatibility.md](docs/compatibility.md)
@@ -111,6 +121,7 @@ Details: [docs/compatibility.md](docs/compatibility.md)
 
 - Anmeldung ausschließlich über DSM (inkl. 2FA/Sperren); das Paket speichert keine Passwörter, Sitzungen nur als SHA-256-Hash.
 - Keine Telemetrie. Ins Internet gehen nur Metadaten-Abfragen (Wikidata/Wikipedia/TVmaze/IMDb-Datensätze, optional TMDb/OMDb).
+- Jellyfin-Schnittstelle standardmäßig aus; Zugriffstokens nur als SHA-256 gespeichert, je Gerät abmeldbar.
 - Mediendateien werden nur gelesen – geändert bzw. gelöscht wird ausschließlich auf ausdrücklichen Befehl eines Administrators.
 - Mehr: [docs/security.md](docs/security.md)
 

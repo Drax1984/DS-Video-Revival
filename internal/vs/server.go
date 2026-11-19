@@ -51,6 +51,9 @@ type Server struct {
 
 	connsOnce sync.Once
 	conns     *Conns
+
+	// Jellyfin: Jellyfin-kompatible Schnittstelle (nil = nicht eingebunden).
+	Jellyfin JellyfinAPI
 }
 
 // Cfg returns the current configuration (atomar austauschbar über die Admin-UI).
@@ -128,6 +131,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				log.Printf("dsm-zugriff: %s %s → %d (%s, %s, %dms)", r.Method, p, sw.code, clientAddr(r), shortUA(r.UserAgent()), time.Since(start).Milliseconds())
 			}()
 		}
+	}
+	if s.serveJellyfin(w, r) {
+		return
 	}
 	switch {
 	case strings.HasPrefix(p, "/dsvr/") || p == "/dsvr":

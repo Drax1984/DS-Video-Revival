@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"math"
 	"net/http"
@@ -611,6 +610,32 @@ func (m *HLSManager) Stop(id string) {
 	}()
 }
 
+// StopAll beendet alle Umwandlungen (Neustart/Beenden) und wartet kurz auf FFmpeg.
+func (m *HLSManager) StopAll() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	var dones []chan struct{}
+	ids := make([]string, 0, len(m.jobs))
+	for id, j := range m.jobs {
+		ids = append(ids, id)
+		dones = append(dones, j.doneCh())
+	}
+	m.mu.Unlock()
+	for _, id := range ids {
+		m.Stop(id)
+	}
+	deadline := time.After(3 * time.Second)
+	for _, d := range dones {
+		select {
+		case <-d:
+		case <-deadline:
+			return
+		}
+	}
+}
+
 // Count returns running jobs.
 func (m *HLSManager) Count() int {
 	m.mu.Lock()
@@ -640,16 +665,27 @@ func (m *HLSManager) reap() {
 // werden auf absolute Pfade (prefix) umgeschrieben, damit Clients, deren
 // Stream-URL anders aussieht (z.B. …/vtestreaming.cgi/1.mp4), Segmente finden.
 func (m *HLSManager) ServeFile(w http.ResponseWriter, r *http.Request, j *Job, name, prefix string) {
+	m.serveFile(w, r, j, name, prefix, false)
+}
+
+// ServeFileRanged wie ServeFile, aber Listen beantworten Teilabfragen mit 206
+// (Safari/AVPlayer im Web-Fenster fragen zuerst „Range: bytes=0-1“ ab). Die
+// DS-video-Apps erwarten bei Listen dagegen immer 200 wie Video Station.
+func (m *HLSManager) ServeFileRanged(w http.ResponseWriter, r *http.Request, j *Job, name, prefix string) {
+	m.serveFile(w, r, j, name, prefix, true)
+}
+
+func (m *HLSManager) serveFile(w http.ResponseWriter, r *http.Request, j *Job, name, prefix string, ranges bool) {
 	if strings.Contains(name, "/") || strings.Contains(name, "..") {
 		http.NotFound(w, r)
 		return
 	}
 	if name == "" || name == "index.m3u8" {
 		if j.VOD {
-			m.serveVODPlaylist(w, j, prefix)
+			m.serveVODPlaylist(w, r, j, prefix, ranges)
 			return
 		}
-		m.servePlaylist(w, r, j, prefix)
+		m.servePlaylist(w, r, j, prefix, ranges)
 		return
 	}
 	if j.VOD {
@@ -686,6 +722,14 @@ func (m *HLSManager) ServeFile(w http.ResponseWriter, r *http.Request, j *Job, n
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+	if strings.HasSuffix(name, "init.mp4") {
+		if b, err := os.ReadFile(p); err == nil {
+			w.Header().Set("Content-Type", "video/mp4")
+			w.Header().Set("Cache-Control", "no-cache")
+			http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(cleanInit(b)))
+			return
+		}
+	}
 	switch {
 	case strings.HasSuffix(name, ".mp4") || strings.HasSuffix(name, ".m4s"):
 		w.Header().Set("Content-Type", "video/mp4")
@@ -707,7 +751,7 @@ func segIndex(name string) (int, bool) {
 func segName(k int) string { return fmt.Sprintf("seg%05d.m4s", k) }
 
 // serveVODPlaylist: vollständige Liste über die ganze Laufzeit, sofort.
-func (m *HLSManager) serveVODPlaylist(w http.ResponseWriter, j *Job, prefix string) {
+func (m *HLSManager) serveVODPlaylist(w http.ResponseWriter, r *http.Request, j *Job, prefix string, ranges bool) {
 	n := j.segCount()
 	var sb strings.Builder
 	sb.WriteString("#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:")
@@ -732,9 +776,19 @@ func (m *HLSManager) serveVODPlaylist(w http.ResponseWriter, j *Job, prefix stri
 		fmt.Fprintf(&sb, "#EXTINF:%.6f,\n%s%s\n", d, prefix, segName(k))
 	}
 	sb.WriteString("#EXT-X-ENDLIST\n")
+	servePlaylistText(w, r, sb.String(), ranges)
+}
+
+// servePlaylistText: Liste mit Range-Unterstützung – Safari/WebKit fragt
+// Adressen zuerst mit „Range: bytes=0-1“ ab und erwartet dann 206.
+func servePlaylistText(w http.ResponseWriter, r *http.Request, body string, ranges bool) {
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-cache")
-	_, _ = io.WriteString(w, sb.String())
+	if ranges {
+		http.ServeContent(w, r, "index.m3u8", time.Time{}, strings.NewReader(body))
+		return
+	}
+	_, _ = w.Write([]byte(body))
 }
 
 func (j *Job) genFile(g int, name string) string {
@@ -810,6 +864,7 @@ func (m *HLSManager) serveVODInit(w http.ResponseWriter, r *http.Request, j *Job
 			}
 			if n, err := normalizeInit(b); err == nil {
 				if _, err := initEdits(n); err == nil {
+					n = cleanInit(n)
 					cached = n
 					j.mu.Lock()
 					j.initNorm = n
@@ -922,7 +977,7 @@ func (m *HLSManager) restartAt(j *Job, k int) error {
 	return m.launch(j, j.audioIndex, j.HW)
 }
 
-func (m *HLSManager) servePlaylist(w http.ResponseWriter, r *http.Request, j *Job, prefix string) {
+func (m *HLSManager) servePlaylist(w http.ResponseWriter, r *http.Request, j *Job, prefix string, ranges bool) {
 	p := filepath.Join(j.Dir, "index.m3u8")
 	deadline := time.Now().Add(60 * time.Second)
 	for {
@@ -967,9 +1022,7 @@ func (m *HLSManager) servePlaylist(w http.ResponseWriter, r *http.Request, j *Jo
 			sb.WriteString("#EXT-X-START:TIME-OFFSET=0,PRECISE=YES\n")
 		}
 	}
-	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-	w.Header().Set("Cache-Control", "no-cache")
-	_, _ = w.Write([]byte(sb.String()))
+	servePlaylistText(w, r, sb.String(), ranges)
 }
 
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }

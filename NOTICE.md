@@ -18,6 +18,13 @@ Kompatibilität mit Synology-Protokollen bedeutet keine offizielle Unterstützun
   [holg/ds-video-hevc](https://github.com/holg/ds-video-hevc) (MIT) als Referenz
   abgeleitet; es wurde kein Code übernommen.
 - Request-/Fehlercode-Konventionen: offizieller *Synology File Station API Guide*.
+- Jellyfin-Schnittstelle (`internal/jellyfin`): eigene Umsetzung der öffentlich
+  beschriebenen Jellyfin-Server-API (OpenAPI), damit Jellyfin-Apps die Mediathek
+  nutzen können. Pflichtfelder der Datenmodelle wurden mit den generierten Modellen
+  der [jellyfin-sdk-kotlin](https://github.com/jellyfin/jellyfin-sdk-kotlin)
+  (LGPL-3.0) abgeglichen; es wurde kein Code übernommen. DS Video Revival enthält
+  keine Jellyfin-Software und steht in keiner Verbindung zum Jellyfin-Projekt;
+  „Jellyfin“ bezeichnet hier nur die Schnittstelle, die die Apps erwarten.
 
 - Metadaten (Standard, ohne Schlüssel): [Wikidata](https://www.wikidata.org/) (CC0),
   Texte und Plakatbilder aus [Wikipedia](https://www.wikipedia.org/) (Texte CC BY-SA;

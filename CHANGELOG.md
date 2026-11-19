@@ -2,6 +2,45 @@
 
 Installationspakete: [Releases](../../releases). Welches Paket für welche NAS: [README](README.md#welches-paket-für-welche-synology).
 
+## 0.6.6 – 19.11.2026
+
+**Neu: Jellyfin-Apps** (Einstellungen → Jellyfin-Schnittstelle, standardmäßig aus, siehe [docs/jellyfin.md](docs/jellyfin.md))
+
+- Jellyfin-Apps wie Infuse, Swiftfin, Jellyfin für Android TV, Findroid und Streamyfin nutzen dieselbe Mediathek:
+  Bibliotheken, Serien/Staffeln/Folgen, Plakate, Suche, „Fortsetzen“, „Als Nächstes“, „Zuletzt hinzugefügt“,
+  Favoriten, gesehen/ungesehen. Wiedergabe direkt oder per HLS-Umwandlung, Untertitel. Es gelten dieselben
+  Benutzerrechte und Wiedergabepositionen wie in den DS-video-Apps.
+- Anmeldung mit DSM-Konto oder Quick Connect (auch für Konten mit Zwei-Faktor-Anmeldung).
+- Eigener Port (Standard 8096), zusätzlich über DSM unter `/jellyfin`, automatische Suche im Heimnetz.
+- Neuer Reiter „Jellyfin-Apps“ mit Adressen, Quick Connect und angemeldeten Geräten. Jellyfin-Apps erscheinen unter
+  „Verbindungen“ und lassen sich trennen.
+- **Offizielle App „Jellyfin“ (iPhone/Android):** Sie zeigt nur die Weboberfläche des Servers an, dafür liefert
+  DS Video Revival unter `/web/` eine eigene, einfache Mediathek: Startseite mit „Weiterschauen“, „Als Nächstes“ und
+  neuen Titeln je Bibliothek, Bibliotheken mit Sortierung, Suche, Detailansicht mit Staffeln, Folgen und Zurück-Knopf,
+  Wiedergabe direkt oder umgewandelt mit Untertiteln, Fortsetzen. Anmeldung mit Passwort oder Quick Connect,
+  Deutsch/Englisch nach Gerätesprache. Startet ein Film nicht, wird er automatisch stärker umgewandelt.
+- Bedingungen aus dem Geräteprofil der Apps (z.B. „H.264 höchstens 8 Bit“) werden beachtet. Die gewählte Tonspur
+  entscheidet, ob der Ton kopiert oder umgewandelt wird.
+
+**Weboberfläche**
+
+- Deutsch oder Englisch: Auswahl oben rechts (Automatisch nach Browser/System, Deutsch, English), auch auf der
+  Anmeldeseite.
+- Der Port der Weboberfläche ist in den Einstellungen änderbar (mit Prüfung auf reservierte und belegte Ports), dazu
+  gibt es **„DS Video Revival neu starten“**. Nach einem Portwechsel wechselt die Oberfläche selbst zum neuen Port.
+- „Sprache“ der Metadaten heißt jetzt „Sprache der Inhalte (Metadaten)“.
+
+**Wiedergabe (auch in den DS-video-Apps)**
+
+- H.264 mit 10 Bit („High 10“) bzw. 4:2:2/4:4:4 wird nach H.264 8 Bit umgewandelt. Diese Videos können iPhone,
+  iPad, Apple TV, Android und Browser nicht abspielen.
+- Dolby Vision Profil 7 (UHD-Blu-ray mit Erweiterungsschicht): Die Dolby-Vision-Angabe wird beim Umverpacken
+  entfernt, Apple-Geräte spielen dann die HDR10-Basis ab.
+- Eine leere `sdtp`-Box, die manche FFmpeg-Versionen schreiben, wird aus umverpackten Videos entfernt. Mit ihr
+  spielen Apple-Geräte HEVC-Videos nicht ab.
+- Protokoll: Die Wiedergabe-Abrufe der Jellyfin-Schnittstelle stehen für die Fehlersuche im Protokoll
+  (`jellyfin-zugriff:`).
+
 ## 0.5.42 – 17.11.2026 · erste Veröffentlichung
 
 Erste öffentliche Version auf GitHub. Pakete für x86_64, aarch64 und armv7 (DSM 7.2 oder neuer).

@@ -34,7 +34,8 @@ DS-Video-App ──HTTP(S)──▶ :5180  dsvr (ein statisches Go-Binary, run-a
 | E | Metadata Engine | `internal/metadata` | Wikidata/Wikipedia/TVmaze/IMDb-Datensätze, TMDb/OMDb optional, lokale Plakate |
 | F | Streaming Engine | `internal/stream` | Direct Play, HLS-Remux, Transcode (VAAPI optional), Offline-Umwandlung |
 | G | Database Layer | `internal/library` (JSON, atomar) | SQLite geplant (reiner Go-Treiber) |
-| H | Web Administration | `internal/admin` | Mediathek, Benutzerrechte, Verbindungen, Ordneransicht, Status, Protokoll |
+| H | Web Administration | `internal/admin` | Mediathek, Benutzerrechte, Verbindungen, Ordneransicht, Status, Protokoll; Deutsch/Englisch (`web/i18n.js`, `web/lang-en.js`) |
+| K | Jellyfin-Schnittstelle | `internal/jellyfin` | Teilmenge der Jellyfin-API 12.x (ältere Pfade ab 10.8): Anmeldung, Quick Connect, Bibliotheken, Serien, Bilder, PlaybackInfo, Direktwiedergabe, HLS, Untertitel, Fortschritt, Suche im Heimnetz (UDP 7359); eigener Port und `/jellyfin` |
 | I | Diagnostics | `internal/vs/recorder.go`, `capture`, `probe` | Feldforschung eingebaut |
 | J | Migration Engine | – | offen |
 

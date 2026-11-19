@@ -388,3 +388,80 @@ func shiftSegment(seg []byte, off map[uint32]int64) error {
 	}
 	return nil
 }
+
+// cleanInit entfernt aus der init.mp4, was Apple-Geräte (AVPlayer) an der
+// Wiedergabe hindert:
+//   - leere sdtp-Boxen (FFmpeg schreibt sie bei Videos mit B-Bildern in die
+//     init.mp4 ohne Samples; AVPlayer verweigert dann HEVC),
+//   - die Dolby-Vision-Angabe (dvcC/dvvC) bei Profil 7 (UHD-Blu-ray mit
+//     Erweiterungsschicht) – das können Apple-Geräte nicht; ohne die Angabe
+//     spielen sie die HDR10-Basis ab.
+// Bei Fehlern bleibt die Datei unverändert.
+func cleanInit(b []byte) []byte {
+	moov, ok := topBox(b, "moov")
+	if !ok || moov.hdr != 8 {
+		return b
+	}
+	drop := func(typ string, payload []byte) bool {
+		switch typ {
+		case "sdtp":
+			return true // in der init.mp4 gibt es keine Samples
+		case "dvcC", "dvvC", "dvwC":
+			return len(payload) >= 3 && payload[2]>>1 == 7
+		}
+		return false
+	}
+	nm, changed := rebuildBox(b, moov, drop)
+	if !changed {
+		return b
+	}
+	out := append([]byte(nil), b[:moov.start]...)
+	out = append(out, nm...)
+	return append(out, b[moov.end:]...)
+}
+
+// containerHead: Länge des Kopfs vor den Kind-Boxen (0 = keine Container-Box).
+func containerHead(b []byte, bx mp4Box) int {
+	switch bx.typ {
+	case "moov", "trak", "mdia", "minf", "stbl", "edts", "dinf", "mvex":
+		return bx.hdr
+	case "stsd":
+		return bx.hdr + 8 // Version/Flags + Anzahl
+	case "hvc1", "hev1", "dvh1", "dvhe", "avc1", "avc3":
+		return bx.hdr + 78 // VisualSampleEntry
+	}
+	return 0
+}
+
+func rebuildBox(b []byte, bx mp4Box, drop func(string, []byte) bool) ([]byte, bool) {
+	h := containerHead(b, bx)
+	if h == 0 || bx.start+h > bx.end {
+		return b[bx.start:bx.end], false
+	}
+	kids, err := readBoxes(b, bx.start+h, bx.end)
+	if err != nil {
+		return b[bx.start:bx.end], false
+	}
+	changed := false
+	var body []byte
+	for _, k := range kids {
+		if drop(k.typ, b[k.start+k.hdr:k.end]) {
+			changed = true
+			continue
+		}
+		kb, c := rebuildBox(b, k, drop)
+		changed = changed || c
+		body = append(body, kb...)
+	}
+	if !changed {
+		return b[bx.start:bx.end], false
+	}
+	out := append([]byte(nil), b[bx.start:bx.start+h]...)
+	out = append(out, body...)
+	if bx.hdr == 16 {
+		binary.BigEndian.PutUint64(out[8:], uint64(len(out)))
+	} else {
+		binary.BigEndian.PutUint32(out[0:], uint32(len(out)))
+	}
+	return out, true
+}

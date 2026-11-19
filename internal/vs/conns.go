@@ -489,8 +489,8 @@ func (r *Conns) gcLocked(now time.Time) {
 func (s *Server) Conns() *Conns {
 	s.connsOnce.Do(func() {
 		s.conns = NewConns()
-		if s.Auth != nil && s.Auth.Sessions != nil {
-			s.conns.Alive = s.Auth.Sessions.Alive
+		if (s.Auth != nil && s.Auth.Sessions != nil) || s.Jellyfin != nil {
+			s.conns.Alive = s.keyAlive
 		}
 		s.conns.Idle = s.ConnIdle
 	})

@@ -7,9 +7,11 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"dsvideorevival/internal/auth"
+	"dsvideorevival/internal/vs"
 )
 
 func (h *Handler) connections(w http.ResponseWriter, r *http.Request, sess auth.Session) {
@@ -34,7 +36,7 @@ func (h *Handler) connections(w http.ResponseWriter, r *http.Request, sess auth.
 			writeJSON(w, map[string]any{"ok": true})
 			return
 		}
-		if len(req.ID) != 64 {
+		if len(req.ID) != 64 && !strings.HasPrefix(req.ID, vs.JellyfinKeyPrefix) {
 			jsonErr(w, http.StatusBadRequest, "Verbindung fehlt")
 			return
 		}
@@ -47,7 +49,7 @@ func (h *Handler) connections(w http.ResponseWriter, r *http.Request, sess auth.
 			return
 		}
 		c, jobs, ok := h.S.Conns().Kick(req.ID, time.Duration(req.Block)*time.Minute)
-		h.S.Auth.Sessions.Revoke(req.ID) // sid bleibt ungültig (auch wenn DSM sie noch kennt)
+		h.S.RevokeKey(req.ID) // sid bzw. Jellyfin-Gerät bleibt ungültig (auch wenn DSM die sid noch kennt)
 		h.mu.Lock()
 		for tok, t := range h.raw {
 			if t.key == req.ID {

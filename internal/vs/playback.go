@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -535,41 +536,73 @@ func subtitleGet(c *Ctx) {
 		http.NotFound(c.W, c.Req.HTTP)
 		return
 	}
-	want := c.Req.Str("subtitle_id")
+	data, err := c.S.SubtitleText(f, c.Req.Str("subtitle_id"))
+	if errors.Is(err, os.ErrNotExist) {
+		http.NotFound(c.W, c.Req.HTTP)
+		return
+	}
+	if err != nil {
+		http.Error(c.W, "Untertitel nicht lesbar", http.StatusInternalServerError)
+		return
+	}
+	c.W.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = c.W.Write(data)
+}
+
+// SubtitleTrack: Textuntertitel einer Datei (extern oder eingebettet).
+type SubtitleTrack struct {
+	ID       string // "ext:…" bzw. "emb:<n>"
+	Title    string
+	Lang     string
+	Format   string // srt | vtt | ass
+	Embedded bool
+	Index    int // eingebettet: relative Untertitelspur
+}
+
+// Subtitles listet die Textuntertitel einer Datei (externe Dateien daneben
+// und eingebettete Textspuren).
+func Subtitles(f library.File) []SubtitleTrack {
+	var out []SubtitleTrack
 	for _, s := range subtitlesFor(f) {
-		if s.ID != want {
+		out = append(out, SubtitleTrack{ID: s.ID, Title: s.Title, Lang: s.Lang, Format: s.Format, Embedded: s.Embedded, Index: s.Index})
+	}
+	return out
+}
+
+// SubtitleText liefert einen Untertitel als UTF-8 (eingebettete Spuren und
+// ASS als SRT über FFmpeg). Unbekannte id: os.ErrNotExist.
+func (s *Server) SubtitleText(f library.File, id string) ([]byte, error) {
+	for _, sub := range subtitlesFor(f) {
+		if sub.ID != id {
 			continue
 		}
 		var data []byte
 		var err error
 		switch {
-		case s.Embedded:
-			data, err = ffmpegSRT(c, f.Path, "0:s:"+strconv.Itoa(s.Index))
-		case s.Format == "ass":
-			if data, err = ffmpegSRT(c, s.Path, "0:s:0"); err != nil {
-				data, err = os.ReadFile(s.Path)
+		case sub.Embedded:
+			data, err = s.ffmpegSRT(f.Path, "0:s:"+strconv.Itoa(sub.Index))
+		case sub.Format == "ass":
+			if data, err = s.ffmpegSRT(sub.Path, "0:s:0"); err != nil {
+				data, err = os.ReadFile(sub.Path)
 			}
 		default:
-			data, err = os.ReadFile(s.Path)
+			data, err = os.ReadFile(sub.Path)
 		}
 		if err != nil {
-			http.Error(c.W, "Untertitel nicht lesbar", http.StatusInternalServerError)
-			return
+			return nil, err
 		}
-		c.W.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = c.W.Write(toUTF8(data))
-		return
+		return toUTF8(data), nil
 	}
-	http.NotFound(c.W, c.Req.HTTP)
+	return nil, os.ErrNotExist
 }
 
-func ffmpegSRT(c *Ctx, src, mapping string) ([]byte, error) {
-	if c.S.HLS == nil || c.S.HLS.FFmpeg == "" {
+func (s *Server) ffmpegSRT(src, mapping string) ([]byte, error) {
+	if s.HLS == nil || s.HLS.FFmpeg == "" {
 		return nil, stream.ErrNoFFmpeg
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	return exec.CommandContext(ctx, c.S.HLS.FFmpeg, "-hide_banner", "-loglevel", "error", "-i", src, "-map", mapping, "-f", "srt", "-").Output()
+	return exec.CommandContext(ctx, s.HLS.FFmpeg, "-hide_banner", "-loglevel", "error", "-i", src, "-map", mapping, "-f", "srt", "-").Output()
 }
 
 // toUTF8: Zeichensatzkonvertierung – BOM entfernen, Windows-1252/Latin-1 → UTF-8.

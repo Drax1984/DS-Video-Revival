@@ -99,6 +99,23 @@ type OfflineManager struct {
 	cancel  context.CancelFunc
 	running int // ID der laufenden Aufgabe
 	wake    chan struct{}
+	closing bool // Neustart/Beenden: keine neue Aufgabe mehr beginnen
+}
+
+// Shutdown bricht eine laufende Umwandlung ab, ohne die Aufgabe zu ändern –
+// nach dem Neustart beginnt sie von vorn.
+func (m *OfflineManager) Shutdown() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.closing = true
+	cancel := m.cancel
+	m.mu.Unlock()
+	if cancel != nil {
+		cancel()
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 // NewOfflineManager lädt gespeicherte Aufgaben und startet die Abarbeitung.
@@ -398,6 +415,9 @@ func (m *OfflineManager) worker() {
 func (m *OfflineManager) nextWaiting() *OfflineTask {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.closing {
+		return nil
+	}
 	var best *OfflineTask
 	for _, t := range m.tasks {
 		if t.State == OfflineWait && (best == nil || t.ID < best.ID) {

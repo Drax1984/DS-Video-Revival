@@ -23,6 +23,14 @@
   DSM-Administratoren. „Nur eine Verbindung gleichzeitig“ und Trennen/Sperren von
   Verbindungen (ab 0.5.33/0.5.38); getrennte Sitzungen bleiben ungültig.
 - **Streams:** an Benutzer gebunden, fremde Stream-IDs werden abgewiesen.
+- **Jellyfin-Schnittstelle (ab 0.6.6, standardmäßig aus):** Anmeldung über eine
+  kurze DSM-Anmeldung, die gleich wieder abgemeldet wird (Passwort, Sperre,
+  Anwendungsberechtigung prüft DSM). Alternativ Quick Connect: Der Code aus der
+  App wird in der Weboberfläche bestätigt, also hinter der DSM-Anmeldung samt 2FA.
+  Zugriffstokens nur als SHA-256 auf Platte (`jellyfin.json`), abmeldbar je
+  Gerät. Gleiche Rechteprüfung wie die DS-video-Apps. Bilder ohne Token nur mit
+  HMAC-Tag aus einer angemeldeten Abfrage. HLS-Segmente nur über die nicht
+  erratbare Job-ID. Eigener Port (8096) plus `/jellyfin` über DSM.
 - **Mitschnitt-Werkzeug:** entfernt Passwörter, sids, Tokens, Kontonamen vor dem
   Schreiben.
 
@@ -32,3 +40,7 @@
 2. HTTPS nur optional; im LAN standardmäßig HTTP (wie DSM-Port 5000). Für den
    Fernzugriff DSM über HTTPS bzw. einen Reverse-Proxy mit Zertifikat nutzen.
 3. Gerätesperren („Trennen mit Sperre“) gelten bis zum nächsten Paketneustart.
+4. Jellyfin-Tokens bleiben gültig, wenn in DSM die Anwendungsberechtigung
+   entzogen oder das Passwort geändert wird (eine neue Anmeldung ist dann
+   nicht mehr möglich). Betroffene Geräte unter „Jellyfin-Apps“ bzw.
+   „Verbindungen“ abmelden.
