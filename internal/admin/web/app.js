@@ -49,7 +49,7 @@
       const j = await (await fetch("/webapi/entry.cgi", { method: "POST", body })).json();
       if (!j.success) {
         const code = j.error && j.error.code;
-        if (code === 403) { $("#otpRow").hidden = false; $("#loginErr").textContent = t("Bitte 2FA-Code eingeben."); return; }
+        if (code === 403) { $("#otpRow").hidden = false; $("#otpRow input").focus(); $("#loginErr").textContent = t("Bitte 2FA-Code eingeben."); return; }
         $("#loginErr").textContent = code === 400 ? t("Konto oder Passwort falsch.")
           : code === 402 ? t("Keine Berechtigung für DS Video Revival (DSM → Systemsteuerung → Anwendungsberechtigungen).")
           : t("Anmeldung fehlgeschlagen (Code {0}).", code);

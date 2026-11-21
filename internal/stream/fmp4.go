@@ -396,6 +396,7 @@ func shiftSegment(seg []byte, off map[uint32]int64) error {
 //   - die Dolby-Vision-Angabe (dvcC/dvvC) bei Profil 7 (UHD-Blu-ray mit
 //     Erweiterungsschicht) – das können Apple-Geräte nicht; ohne die Angabe
 //     spielen sie die HDR10-Basis ab.
+//
 // Bei Fehlern bleibt die Datei unverändert.
 func cleanInit(b []byte) []byte {
 	moov, ok := topBox(b, "moov")

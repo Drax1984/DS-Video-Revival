@@ -132,6 +132,7 @@ func cmdServe(args []string) error {
 	}
 	store := auth.NewStore(filepath.Join(cfg.DataDir, "sessions.json"))
 	ad := auth.NewAdapter(cfg.AuthMode, up, local, store, cfg.AdminUsers)
+	ad.PrefFile = filepath.Join(cfg.DataDir, "auth-sessions.json")
 	lib, err := library.Open(filepath.Join(cfg.DataDir, "library.json"))
 	if err != nil {
 		return err

@@ -26,6 +26,19 @@ type accessEntry struct {
 type accessLog struct {
 	mu   sync.Mutex
 	ring []accessEntry
+	segs map[string]int // protokollierte Segmente je Umwandlung
+}
+
+// logSegment: die ersten Segmente jeder Umwandlung ins Protokoll (danach nur
+// Fehler und langsame Antworten).
+func (a *accessLog) logSegment(job string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.segs == nil || len(a.segs) > 200 {
+		a.segs = map[string]int{}
+	}
+	a.segs[job]++
+	return a.segs[job] <= 4
 }
 
 const accessKeep = 80
@@ -122,7 +135,11 @@ func (h *Handler) trackAccess(w http.ResponseWriter, r *http.Request, segs []str
 		}
 		h.access.add(e)
 		seg := strings.HasSuffix(e.Path, ".m4s") || strings.HasSuffix(e.Path, ".ts")
-		if !seg || e.Status >= 300 && e.Status != http.StatusPartialContent || strings.Contains(e.Path, "seg0000") {
+		job := ""
+		if len(segs) >= 5 && segs[2] == "hls" {
+			job = segs[3]
+		}
+		if !seg || e.Status >= 300 && e.Status != http.StatusPartialContent || e.Ms >= 3000 || h.access.logSegment(job) {
 			rg := ""
 			if e.Range != "" {
 				rg = " [" + e.Range + "]"

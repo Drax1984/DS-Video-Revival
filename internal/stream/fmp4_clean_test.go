@@ -76,3 +76,34 @@ func join(s []string) string {
 	}
 	return out
 }
+
+func TestWithRate(t *testing.T) {
+	enc := []string{"-c:v", "libx264", "-crf", "22", "-maxrate", "8M", "-bufsize", "16M", "-g", "48"}
+	got := join(withRate(enc, 3_000_000))
+	if got != "-c:v libx264 -crf 22 -maxrate 3000000 -bufsize 6000000 -g 48" {
+		t.Fatalf("libx264: %s", got)
+	}
+	if got := join(withRate([]string{"-c:v", "libopenh264", "-b:v", "6M"}, 2_000_000)); got != "-c:v libopenh264 -b:v 2000000" {
+		t.Fatalf("openh264: %s", got)
+	}
+	if got := join(withRate([]string{"-c:v", "x"}, 1_000_000)); got != "-c:v x -maxrate 1000000 -bufsize 2000000" {
+		t.Fatalf("ohne Rate: %s", got)
+	}
+	if got := join(withRate(enc, 0)); got != join(enc) {
+		t.Fatalf("0 = unverändert: %s", got)
+	}
+}
+
+func TestParseTransfer(t *testing.T) {
+	for in, want := range map[string]string{
+		"  Stream #0:0: Video: hevc (Main 10), yuv420p10le(tv, bt2020nc/bt2020/smpte2084), 3840x2160, SAR 1:1 DAR 16:9, 23.98 fps": "smpte2084",
+		"  Stream #0:0(eng): Video: hevc (Main 10), yuv420p10le(tv, bt2020nc/bt2020/arib-std-b67, progressive), 1920x1080":         "arib-std-b67",
+		"  Stream #0:0: Video: h264 (High), yuv420p(tv, bt709, progressive), 1920x800 [SAR 1:1 DAR 12:5], 23.98 fps":               "bt709",
+		"  Stream #0:0: Video: h264 (High), yuv420p(progressive), 1280x720, 25 fps":                                                "",
+		"  Stream #0:1: Audio: eac3, 48000 Hz, 5.1(side), fltp, 640 kb/s":                                                          "",
+	} {
+		if got := parseTransfer(in); got != want {
+			t.Errorf("%q → %q, erwartet %q", in, got, want)
+		}
+	}
+}

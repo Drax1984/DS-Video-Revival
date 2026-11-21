@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -18,9 +19,13 @@ import (
 
 // Adapter is the Authentication Adapter (Komponente C).
 type Adapter struct {
-	prefMu     sync.Mutex
-	prefSess   map[string]string // Konto → zuletzt erfolgreicher DSM-Sitzungsname
-	Mode       string            // "dsm" | "local"
+	prefMu   sync.Mutex
+	prefSess map[string]string // Konto → zuletzt erfolgreicher DSM-Sitzungsname
+	// PrefFile: dort bleibt prefSess über Neustarts erhalten (spart bei der
+	// ersten Anmeldung einen abgelehnten DSM-Anmeldeversuch).
+	PrefFile   string
+	prefLoaded bool
+	Mode       string // "dsm" | "local"
 	Upstream   *upstream.Client
 	Local      *LocalUsers
 	Sessions   *Store
@@ -44,6 +49,7 @@ func NewAdapter(mode string, up *upstream.Client, local *LocalUsers, store *Stor
 func (a *Adapter) HandleAuth(w http.ResponseWriter, req *webapi.Request, rawBody []byte) {
 	ip := remoteIP(req.HTTP)
 	method := strings.ToLower(req.Method)
+	t0 := time.Now()
 	if method == "login" && a.Limiter.Blocked(ip) {
 		log.Printf("auth: login von %s blockiert (zu viele Fehlversuche)", ip)
 		time.Sleep(time.Second)
@@ -102,11 +108,19 @@ func (a *Adapter) HandleAuth(w http.ResponseWriter, req *webapi.Request, rawBody
 	used := sessName
 	if method == "login" && (strings.EqualFold(sessName, "VideoStation") || sessName == "DSVideoRevival") {
 		cands := a.sessionOrder(account)
-		if strings.EqualFold(sessName, "VideoStation") {
+		switch {
+		case strings.EqualFold(sessName, "VideoStation"):
 			used = cands[0]
-			rawBody = rewriteSession(req, rawBody, used)
+			rawBody = rewriteSession(req, rawBody, sessName, used)
 			retry = cands[1:]
-		} else {
+		case a.prefFor(account) != "":
+			// Weboberfläche: Der eigene Name „DSVideoRevival“ wurde für dieses
+			// Konto schon einmal abgelehnt – gleich den bewährten nehmen. Jeder
+			// abgelehnte Versuch ist eine vollständige DSM-Anmeldung (langsam).
+			used = cands[0]
+			rawBody = rewriteSession(req, rawBody, sessName, used)
+			retry = cands[1:]
+		default:
 			retry = cands
 		}
 	}
@@ -196,7 +210,7 @@ func (a *Adapter) HandleAuth(w http.ResponseWriter, req *webapi.Request, rawBody
 					a.Sessions.MarkValidated(sid, info.IsAdmin)
 				}
 				a.rememberSession(account, used)
-				log.Printf("auth: %q angemeldet über DSM (Sitzung %s%s)", account, used, info.note())
+				log.Printf("auth: %q angemeldet über DSM (Sitzung %s%s, %.1f s)", account, used, info.note(), time.Since(t0).Seconds())
 			}
 		case "logout":
 			if sidBefore != "" {
@@ -452,7 +466,12 @@ func (a *Adapter) sessionInfo(ctx context.Context, sid string) sessInfo {
 		// Direkt nach der Anmeldung ist AppPrivilege gelegentlich leer
 		// (Feldtest 0.5.6) – einmal kurz warten und erneut fragen.
 		if d, _ := m["data"].(map[string]any); d != nil {
-			if ap, _ := d["AppPrivilege"].(map[string]any); ap != nil && len(ap) == 0 {
+			admin := false
+			if se, _ := d["Session"].(map[string]any); se != nil {
+				admin, _ = se["is_admin"].(bool)
+			}
+			// Administratoren werden ohnehin nie abgewiesen: nicht warten.
+			if ap, _ := d["AppPrivilege"].(map[string]any); ap != nil && len(ap) == 0 && !admin {
 				time.Sleep(700 * time.Millisecond)
 				if m2, err2 := a.Upstream.Call(ctx, "entry.cgi", url.Values{
 					"api": {"SYNO.Core.Desktop.Initdata"}, "version": {"1"}, "method": {"get"}, "_sid": {sid},
@@ -517,8 +536,8 @@ func (a *Adapter) logoutUpstream(sid string) {
 	_, _ = a.Upstream.Call(ctx, "auth.cgi", url.Values{"api": {"SYNO.API.Auth"}, "version": {"6"}, "method": {"logout"}, "_sid": {sid}})
 }
 
-// rewriteSession: session=VideoStation → to (Formular und URL).
-func rewriteSession(req *webapi.Request, raw []byte, to string) []byte {
+// rewriteSession: session=from (z.B. VideoStation) → to (Formular und URL).
+func rewriteSession(req *webapi.Request, raw []byte, from, to string) []byte {
 	set := func(v url.Values) {
 		if to == noSession {
 			v.Del("session")
@@ -526,12 +545,12 @@ func rewriteSession(req *webapi.Request, raw []byte, to string) []byte {
 			v.Set("session", to)
 		}
 	}
-	if q := req.HTTP.URL.Query(); strings.EqualFold(q.Get("session"), "VideoStation") {
+	if q := req.HTTP.URL.Query(); strings.EqualFold(q.Get("session"), from) {
 		set(q)
 		req.HTTP.URL.RawQuery = q.Encode()
 	}
 	if strings.HasPrefix(req.HTTP.Header.Get("Content-Type"), "application/x-www-form-urlencoded") || req.HTTP.Header.Get("Content-Type") == "" {
-		if v, err := url.ParseQuery(string(raw)); err == nil && strings.EqualFold(v.Get("session"), "VideoStation") {
+		if v, err := url.ParseQuery(string(raw)); err == nil && strings.EqualFold(v.Get("session"), from) {
 			set(v)
 			raw = []byte(v.Encode())
 			req.HTTP.ContentLength = int64(len(raw))
@@ -550,10 +569,39 @@ const noSession = "(ohne Sitzungsname)"
 
 var sessionCandidates = []string{noSession, "webui", "FileStation"}
 
-func (a *Adapter) sessionOrder(account string) []string {
+// prefFor: bewährter Sitzungsname des Kontos ("" = keiner bekannt).
+func (a *Adapter) prefFor(account string) string {
 	a.prefMu.Lock()
-	p := a.prefSess[strings.ToLower(account)]
-	a.prefMu.Unlock()
+	defer a.prefMu.Unlock()
+	a.loadPrefLocked()
+	return a.prefSess[strings.ToLower(account)]
+}
+
+func (a *Adapter) loadPrefLocked() {
+	if a.prefLoaded {
+		return
+	}
+	a.prefLoaded = true
+	if a.PrefFile == "" {
+		return
+	}
+	if b, err := os.ReadFile(a.PrefFile); err == nil {
+		m := map[string]string{}
+		if json.Unmarshal(b, &m) == nil {
+			if a.prefSess == nil {
+				a.prefSess = map[string]string{}
+			}
+			for k, v := range m {
+				if _, ok := a.prefSess[k]; !ok {
+					a.prefSess[k] = v
+				}
+			}
+		}
+	}
+}
+
+func (a *Adapter) sessionOrder(account string) []string {
+	p := a.prefFor(account)
 	out := []string{}
 	if p != "" {
 		out = append(out, p)
@@ -571,11 +619,20 @@ func (a *Adapter) rememberSession(account, s string) {
 		return
 	}
 	a.prefMu.Lock()
+	defer a.prefMu.Unlock()
+	a.loadPrefLocked()
 	if a.prefSess == nil {
 		a.prefSess = map[string]string{}
 	}
+	if a.prefSess[strings.ToLower(account)] == s {
+		return
+	}
 	a.prefSess[strings.ToLower(account)] = s
-	a.prefMu.Unlock()
+	if a.PrefFile != "" {
+		if b, err := json.Marshal(a.prefSess); err == nil {
+			_ = os.WriteFile(a.PrefFile, b, 0o600)
+		}
+	}
 }
 
 // isAdminInfo: Aussperrschutz – Administratoren werden nie wegen der

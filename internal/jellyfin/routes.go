@@ -77,6 +77,8 @@ func (h *Handler) route(x *req) {
 	case x.is("localization/options"), x.is("localization/cultures"), x.is("localization/countries"),
 		x.is("localization/parentalratings"), x.is("plugins"), x.is("packages"):
 		writeJSON(x.w, []any{})
+	case x.is("playback/bitratetest") && get:
+		h.bitrateTest(x)
 	case x.is("dsvrdiag/requests") && get:
 		h.diagRequests(x)
 	case x.is("sessions/playing") && post:
@@ -120,6 +122,8 @@ func (h *Handler) routeVars(x *req, get, post, del bool) {
 		{"movies/*/similar", func(v []string) { h.similar(x, v[0]) }},
 		{"items/*/playbackinfo", func(v []string) { h.playbackInfo(x, v[0]) }},
 		{"items/*/download", func(v []string) { h.streamFile(x, v[0], true) }},
+		{"dsvroffline/file/*", func(v []string) { h.offlineFile(x, v[0]) }},
+		{"dsvroffline/*", func(v []string) { h.offline(x, v[0]) }},
 		{"items/*/file", func(v []string) { h.streamFile(x, v[0], true) }},
 		{"items/*/intros", func(v []string) { writeJSON(x.w, emptyResult()) }},
 		{"users/*/items/*/intros", func(v []string) { writeJSON(x.w, emptyResult()) }},

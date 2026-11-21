@@ -31,6 +31,8 @@ type HLSManager struct {
 	vaapiChecked bool
 	vaapiOK      bool
 	encoders     map[string]bool
+	filters      map[string]bool    // „ffmpeg -filters“
+	srcInfos     map[string]srcInfo // Farbraum und Höhe je Quelldatei
 	h264Checked  bool
 	h264Args     []string // erprobter Software-H.264-Encoder (nil = keiner)
 }
@@ -66,10 +68,50 @@ type Job struct {
 	genStart   map[int]int // erstes Segment je Lauf
 	pick       map[int]int // Segment → Lauf, der es liefern soll (laufende Umwandlung)
 	initNorm   []byte
+	heads      map[int]int // je Lauf: letztes lückenlos fertiges Segment
+	want       int         // zuletzt vom Player angefordertes Segment (-1 = keins)
+	paused     bool        // FFmpeg angehalten (weit genug voraus)
+	pruned     int         // Segmente darunter sind gelöscht
 }
+
+// Drosselung (VOD): FFmpeg läuft der Wiedergabe höchstens so weit voraus und
+// wird danach angehalten, bis der Player aufholt – wie bei Video Station wird
+// nicht der ganze Film vorab umgewandelt (Last, Speicherplatz bei 4K).
+// Segmente weit hinter der Wiedergabe werden gelöscht.
+const (
+	paceAheadCopy      = 120.0 // Sekunden Vorlauf beim Umverpacken
+	paceAheadTranscode = 60.0  // beim Umwandeln
+	keepBehind         = 120.0 // Sekunden hinter der Wiedergabe behalten
+)
 
 // SegLen: Segmentlänge in Sekunden (VOD-Liste und FFmpeg -hls_time).
 const SegLen = 6.0
+
+// SegLenTranscode: kürzere Segmente beim Umwandeln. Nach dem Spulen startet
+// FFmpeg an der neuen Stelle neu; das erste Segment ist dann in der Hälfte der
+// Zeit fertig (Umwandeln läuft auf der NAS oft nur knapp über Echtzeit).
+const SegLenTranscode = 3.0
+
+// vodTS: durchsuchbare Liste mit MPEG-TS-Segmenten.
+func (j *Job) vodTS() bool {
+	return j.VOD && j.Decision.TS && !(j.Decision.CopyVideo && j.Decision.HEVC)
+}
+
+// segName: Dateiname von Segment k (.ts oder .m4s).
+func (j *Job) segName(k int) string {
+	if j.vodTS() {
+		return fmt.Sprintf("seg%05d.ts", k)
+	}
+	return segName(k)
+}
+
+// segLen: Segmentlänge dieses Jobs.
+func (j *Job) segLen() float64 {
+	if j.VOD && !j.Decision.CopyVideo {
+		return SegLenTranscode
+	}
+	return SegLen
+}
 
 func (j *Job) doneCh() chan struct{} {
 	j.mu.Lock()
@@ -79,8 +121,8 @@ func (j *Job) doneCh() chan struct{} {
 
 // segCount: Anzahl Segmente der VOD-Liste.
 func (j *Job) segCount() int {
-	n := int(j.Decision.Duration / SegLen)
-	if float64(n)*SegLen < j.Decision.Duration {
+	n := int(j.Decision.Duration / j.segLen())
+	if float64(n)*j.segLen() < j.Decision.Duration {
 		n++
 	}
 	return n
@@ -97,6 +139,11 @@ func NewHLSManager(ffmpeg, dir string, maxJobs int) *HLSManager {
 	go func() {
 		for range time.Tick(15 * time.Second) {
 			m.reap()
+		}
+	}()
+	go func() {
+		for range time.Tick(250 * time.Millisecond) {
+			m.paceAll()
 		}
 	}()
 	return m
@@ -233,10 +280,10 @@ func (m *HLSManager) Start(account, src string, d Decision, start float64, audio
 	}
 	id := NewStreamID()
 	j := &Job{ID: id, Account: account, Src: src, Dir: filepath.Join(m.Dir, id), Decision: d, Start: start, done: make(chan struct{}), lastUse: time.Now(),
-		VOD: d.Duration > 0, audioIndex: audioIndex}
+		VOD: d.Duration > 0, audioIndex: audioIndex, want: -1}
 	if j.VOD && start > 0 {
 		j.ResumeAt = start
-		j.runStart = int(start / SegLen) // ab gewünschter Stelle vorbereiten
+		j.runStart = int(start / j.segLen()) // ab gewünschter Stelle vorbereiten
 		if j.runStart >= j.segCount() {
 			j.runStart, j.ResumeAt = 0, 0
 		}
@@ -251,30 +298,25 @@ func (m *HLSManager) Start(account, src string, d Decision, start float64, audio
 	}
 	// Bricht FFmpeg sofort ab (z.B. fMP4-HLS nicht unterstützt), einmal mit
 	// MPEG-TS-Segmenten wiederholen; die Fehlermeldung steht im Protokoll.
-	select {
-	case <-j.done:
-		if j.err != nil {
-			first := j.err
-			// Ohne durchsuchbare Liste wären die Zeiten relativ zu Start – die
-			// gemeldeten Positionen stimmten nicht mehr. Daher ab Anfang.
-			j.TS, j.VOD, j.runStart, j.Start, j.ResumeAt, j.done, j.err = true, false, 0, 0, 0, make(chan struct{}), nil
+	// Schreibt FFmpeg schon Dateien, läuft es – dann nicht länger warten.
+	<-j.waitStarted(1500 * time.Millisecond)
+	if j.finished() && j.err != nil {
+		first := j.err
+		// Ohne durchsuchbare Liste wären die Zeiten relativ zu Start – die
+		// gemeldeten Positionen stimmten nicht mehr. Daher ab Anfang.
+		j.TS, j.VOD, j.runStart, j.Start, j.ResumeAt, j.done, j.err = true, false, 0, 0, 0, make(chan struct{}), nil
+		_ = os.RemoveAll(j.Dir)
+		_ = os.MkdirAll(j.Dir, 0o750)
+		if err := m.launch(j, audioIndex, useHW); err != nil {
 			_ = os.RemoveAll(j.Dir)
-			_ = os.MkdirAll(j.Dir, 0o750)
-			if err := m.launch(j, audioIndex, useHW); err != nil {
-				_ = os.RemoveAll(j.Dir)
-				return nil, first
-			}
-			select {
-			case <-j.done:
-				if j.err != nil {
-					_ = os.RemoveAll(j.Dir)
-					return nil, first
-				}
-			case <-time.After(1500 * time.Millisecond):
-			}
-			log.Printf("hls: Rückfall auf MPEG-TS-Segmente aktiv")
+			return nil, first
 		}
-	case <-time.After(1500 * time.Millisecond):
+		<-j.waitStarted(1500 * time.Millisecond)
+		if j.finished() && j.err != nil {
+			_ = os.RemoveAll(j.Dir)
+			return nil, first
+		}
+		log.Printf("hls: Rückfall auf MPEG-TS-Segmente aktiv")
 	}
 	m.mu.Lock()
 	m.jobs[id] = j
@@ -290,7 +332,7 @@ func (m *HLSManager) launch(j *Job, audioIndex int, hw bool) error {
 	segStart, outSS := 0.0, ""
 	switch {
 	case j.VOD:
-		segStart = float64(j.runStart) * SegLen
+		segStart = float64(j.runStart) * j.segLen()
 		switch {
 		case segStart > 0 && j.Decision.CopyVideo:
 			args = append(args, "-ss", strconv.FormatFloat(segStart, 'f', 3, 64))
@@ -327,18 +369,31 @@ func (m *HLSManager) launch(j *Job, audioIndex int, hw bool) error {
 			args = append(args, "-tag:v", "hvc1") // von Apple für HEVC in fMP4 gefordert
 		}
 	case hw:
-		args = append(args, "-vf", "format=nv12,hwupload,scale_vaapi=w=-2:h='min(ih,"+maxH(j.Decision)+")'", "-c:v", "h264_vaapi", "-qp", "23", "-g", "48")
+		args = append(args, "-vf", "format=nv12,hwupload,scale_vaapi=w=-2:h='min(ih,"+maxH(j.Decision)+")'", "-c:v", "h264_vaapi")
+		if r := j.Decision.MaxRate; r > 0 {
+			args = append(args, "-b:v", strconv.FormatInt(r, 10), "-maxrate", strconv.FormatInt(r, 10))
+		} else {
+			args = append(args, "-qp", "23")
+		}
+		args = append(args, "-g", "48")
+		args = append(args, sdrTags...)
 	default:
 		if !m.CanEncodeH264() {
 			return ErrNoH264
 		}
-		args = append(args, "-vf", "scale=-2:'min(ih,"+maxH(j.Decision)+")'")
-		args = append(args, m.softwareH264Args()...)
+		args = append(args, "-vf", m.softwareVF(j.Src, maxH(j.Decision)))
+		enc := withRate(m.softwareH264Args(), j.Decision.MaxRate)
+		if m.srcHeight(j.Src) > 1440 {
+			// 4K-Quelle: das Dekodieren kostet viel, beim Kodieren sparen
+			enc = withPreset(enc, "superfast")
+		}
+		args = append(args, enc...)
+		args = append(args, sdrTags...)
 	}
 	if j.VOD && !j.Decision.CopyVideo {
 		// Schlüsselbilder genau alle SegLen Sekunden, keine weiteren dazwischen
 		// (sonst schneidet FFmpeg bis zu ¼ s zu früh).
-		args = append(args, "-force_key_frames", "expr:gte(t,n_forced*"+strconv.FormatFloat(SegLen, 'f', 0, 64)+")", "-g", "600")
+		args = append(args, "-force_key_frames", "expr:gte(t,n_forced*"+strconv.FormatFloat(j.segLen(), 'f', 0, 64)+")", "-g", "600")
 	}
 	if j.Decision.CopyAudio {
 		args = append(args, "-c:a", "copy")
@@ -350,7 +405,7 @@ func (m *HLSManager) launch(j *Job, audioIndex int, hw bool) error {
 		args = append(args, a...)
 	}
 	args = append(args, "-strict", "-2") // AC-3/E-AC-3 in fMP4 bei älteren FFmpeg-Versionen
-	args = append(args, "-max_muxing_queue_size", "2048", "-f", "hls", "-hls_time", "6", "-hls_list_size", "0",
+	args = append(args, "-max_muxing_queue_size", "2048", "-f", "hls", "-hls_time", strconv.FormatFloat(j.segLen(), 'f', 0, 64), "-hls_list_size", "0",
 		"-hls_playlist_type", "event")
 	if j.TS {
 		if j.Decision.CopyVideo && !j.Decision.HEVC {
@@ -358,6 +413,18 @@ func (m *HLSManager) launch(j *Job, audioIndex int, hw bool) error {
 		}
 		args = append(args, "-hls_flags", "independent_segments+temp_file",
 			"-hls_segment_filename", filepath.Join(j.Dir, "seg%05d.ts"), filepath.Join(j.Dir, "index.m3u8"))
+	} else if j.vodTS() {
+		// MPEG-TS mit absoluten Zeitstempeln: Umverpacken behält sie (-copyts),
+		// beim Umwandeln verschiebt -output_ts_offset auf die Stelle im Film.
+		if j.Decision.CopyVideo {
+			args = append(args, "-bsf:v", "h264_mp4toannexb")
+		} else {
+			args = append(args, "-output_ts_offset", strconv.FormatFloat(segStart, 'f', 3, 64))
+		}
+		pre := fmt.Sprintf("g%d-", j.gen)
+		args = append(args, "-start_number", strconv.Itoa(j.runStart), "-hls_segment_type", "mpegts",
+			"-hls_flags", "independent_segments+temp_file",
+			"-hls_segment_filename", filepath.Join(j.Dir, pre+"seg%05d.ts"), filepath.Join(j.Dir, pre+"ffmpeg.m3u8"))
 	} else {
 		playlist, initName, segPat := "index.m3u8", "init.mp4", "seg%05d.m4s"
 		if j.VOD {
@@ -380,12 +447,12 @@ func (m *HLSManager) launch(j *Job, audioIndex int, hw bool) error {
 		return err
 	}
 	j.mu.Lock()
-	j.cmd, j.cancel, j.HW = cmd, cancel, hw
+	j.cmd, j.cancel, j.HW, j.paused = cmd, cancel, hw, false
 	j.mu.Unlock()
 	_ = audioIndex
 	at := ""
 	if j.VOD && j.runStart > 0 {
-		at = fmt.Sprintf(" ab %s", fmtHMS(float64(j.runStart)*SegLen))
+		at = fmt.Sprintf(" ab %s", fmtHMS(float64(j.runStart)*j.segLen()))
 	}
 	if os.Getenv("DSVR_DEBUG_FFMPEG") != "" {
 		log.Printf("ffmpeg %s", strings.Join(args, " "))
@@ -492,6 +559,35 @@ func (m *HLSManager) Diagnostics() map[string]any {
 
 // softwareH264Args wählt den verfügbaren H.264-Encoder (libx264 bevorzugt;
 // Synologys System-FFmpeg bringt teils nur andere Encoder mit).
+// withRate setzt eine Bitrate-Obergrenze in die Encoder-Argumente ein
+// (-maxrate/-b:v, Puffer doppelt so groß); rate <= 0 lässt sie unverändert.
+func withRate(enc []string, rate int64) []string {
+	if rate <= 0 || enc == nil {
+		return enc
+	}
+	r, buf := strconv.FormatInt(rate, 10), strconv.FormatInt(rate*2, 10)
+	out := make([]string, 0, len(enc)+4)
+	set := false
+	for i := 0; i < len(enc); i++ {
+		switch enc[i] {
+		case "-maxrate", "-b:v":
+			out = append(out, enc[i], r)
+			set = true
+			i++
+			continue
+		case "-bufsize":
+			out = append(out, enc[i], buf)
+			i++
+			continue
+		}
+		out = append(out, enc[i])
+	}
+	if !set {
+		out = append(out, "-maxrate", r, "-bufsize", buf)
+	}
+	return out
+}
+
 func (m *HLSManager) softwareH264Args() []string {
 	m.probeH264()
 	m.mu.Lock()
@@ -557,6 +653,32 @@ func lastLines(s string, n int) string {
 func fmtHMS(sec float64) string {
 	t := int(sec)
 	return fmt.Sprintf("%d:%02d:%02d", t/3600, t/60%60, t%60)
+}
+
+// waitStarted: schließt, sobald FFmpeg beendet ist oder Ausgabedateien
+// anlegt (dann läuft es), spätestens nach max.
+func (j *Job) waitStarted(max time.Duration) <-chan struct{} {
+	out := make(chan struct{})
+	done := j.doneCh()
+	go func() {
+		defer close(out)
+		deadline := time.Now().Add(max)
+		for time.Now().Before(deadline) {
+			select {
+			case <-done:
+				return
+			case <-time.After(50 * time.Millisecond):
+			}
+			if es, err := os.ReadDir(j.Dir); err == nil {
+				for _, e := range es {
+					if n := e.Name(); n != "ffmpeg.log" && !e.IsDir() {
+						return
+					}
+				}
+			}
+		}
+	}()
+	return out
 }
 
 func (j *Job) finished() bool {
@@ -693,11 +815,15 @@ func (m *HLSManager) serveFile(w http.ResponseWriter, r *http.Request, j *Job, n
 			m.serveVODInit(w, r, j)
 			return
 		}
-		if k, ok := segIndex(name); ok {
+		if k, ok := segIndex(name); ok && name == j.segName(k) {
 			if k >= j.segCount() {
 				http.NotFound(w, r)
 				return
 			}
+			j.mu.Lock()
+			j.want = k
+			j.mu.Unlock()
+			m.pace(j)
 			if err := m.ensureSegment(j, k); err != nil {
 				log.Printf("hls: Segment %d: %v", k, err)
 				http.Error(w, err.Error(), http.StatusServiceUnavailable)
@@ -741,10 +867,11 @@ func (m *HLSManager) serveFile(w http.ResponseWriter, r *http.Request, j *Job, n
 }
 
 func segIndex(name string) (int, bool) {
-	if !strings.HasPrefix(name, "seg") || !strings.HasSuffix(name, ".m4s") {
+	ext := filepath.Ext(name)
+	if !strings.HasPrefix(name, "seg") || (ext != ".m4s" && ext != ".ts") {
 		return 0, false
 	}
-	k, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(name, "seg"), ".m4s"))
+	k, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(name, "seg"), ext))
 	return k, err == nil && k >= 0
 }
 
@@ -754,26 +881,32 @@ func segName(k int) string { return fmt.Sprintf("seg%05d.m4s", k) }
 func (m *HLSManager) serveVODPlaylist(w http.ResponseWriter, r *http.Request, j *Job, prefix string, ranges bool) {
 	n := j.segCount()
 	var sb strings.Builder
-	sb.WriteString("#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:")
+	if j.vodTS() {
+		sb.WriteString("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:")
+	} else {
+		sb.WriteString("#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:")
+	}
 	// Bei kopiertem Video schneidet FFmpeg erst am nächsten Schlüsselbild –
 	// Segmente können länger als 6 s sein.
 	if j.Decision.CopyVideo {
 		sb.WriteString("12")
 	} else {
-		sb.WriteString("6")
+		sb.WriteString(strconv.FormatFloat(j.segLen(), 'f', 0, 64))
 	}
 	sb.WriteString("\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-INDEPENDENT-SEGMENTS\n")
 	if j.ResumeAt > 0 {
 		// Player beginnen hier; die ganze Liste bleibt erreichbar (Zurückspulen).
 		fmt.Fprintf(&sb, "#EXT-X-START:TIME-OFFSET=%.3f,PRECISE=YES\n", j.ResumeAt)
 	}
-	sb.WriteString(`#EXT-X-MAP:URI="` + prefix + "init.mp4\"\n")
+	if !j.vodTS() {
+		sb.WriteString(`#EXT-X-MAP:URI="` + prefix + "init.mp4\"\n")
+	}
 	for k := 0; k < n; k++ {
-		d := SegLen
+		d := j.segLen()
 		if k == n-1 {
-			d = j.Decision.Duration - float64(k)*SegLen
+			d = j.Decision.Duration - float64(k)*j.segLen()
 		}
-		fmt.Fprintf(&sb, "#EXTINF:%.6f,\n%s%s\n", d, prefix, segName(k))
+		fmt.Fprintf(&sb, "#EXTINF:%.6f,\n%s%s\n", d, prefix, j.segName(k))
 	}
 	sb.WriteString("#EXT-X-ENDLIST\n")
 	servePlaylistText(w, r, sb.String(), ranges)
@@ -805,12 +938,12 @@ func (j *Job) segFile(k int) (string, int, bool) {
 	}
 	j.mu.Unlock()
 	if pref >= 0 {
-		if p := j.genFile(pref, segName(k)); fileExists(p) {
+		if p := j.genFile(pref, j.segName(k)); fileExists(p) {
 			return p, pref, true
 		}
 	}
 	for ; g >= 0; g-- {
-		if p := j.genFile(g, segName(k)); fileExists(p) {
+		if p := j.genFile(g, j.segName(k)); fileExists(p) {
 			return p, g, true
 		}
 	}
@@ -834,7 +967,7 @@ func (j *Job) runOffsets(g int) (map[uint32]int64, error) {
 	if err != nil {
 		return nil, err
 	}
-	o = runOffsetsFor(ed, float64(start)*SegLen, j.Decision.CopyVideo)
+	o = runOffsetsFor(ed, float64(start)*j.segLen(), j.Decision.CopyVideo)
 	j.mu.Lock()
 	if j.offs == nil {
 		j.offs = map[int]map[uint32]int64{}
@@ -889,6 +1022,12 @@ func (m *HLSManager) serveVODSegment(w http.ResponseWriter, r *http.Request, j *
 	for {
 		if p, g, ok := j.segFile(k); ok {
 			b, err := os.ReadFile(p)
+			if err == nil && len(b) > 0 && j.vodTS() {
+				w.Header().Set("Content-Type", "video/mp2t")
+				w.Header().Set("Cache-Control", "no-cache")
+				http.ServeContent(w, r, j.segName(k), time.Time{}, bytes.NewReader(b))
+				return
+			}
 			if err == nil && len(b) > 0 {
 				o, err := j.runOffsets(g)
 				if err == nil {
@@ -899,7 +1038,7 @@ func (m *HLSManager) serveVODSegment(w http.ResponseWriter, r *http.Request, j *
 				}
 				w.Header().Set("Content-Type", "video/mp4")
 				w.Header().Set("Cache-Control", "no-cache")
-				http.ServeContent(w, r, segName(k), time.Time{}, bytes.NewReader(b))
+				http.ServeContent(w, r, j.segName(k), time.Time{}, bytes.NewReader(b))
 				return
 			}
 		}
@@ -927,11 +1066,11 @@ func (m *HLSManager) ensureSegment(j *Job, k int) error {
 		j.pick[k] = gen
 		j.mu.Unlock()
 	}
-	if fileExists(j.genFile(g, segName(k))) {
+	if fileExists(j.genFile(g, j.segName(k))) {
 		setPick(g)
 		return nil
 	}
-	reach := 3 // Umwandlung: ~Echtzeit
+	reach := int(18 / j.segLen()) // Umwandlung: ~Echtzeit, rund 18 s voraus
 	if j.Decision.CopyVideo {
 		reach = 40 // Umverpacken läuft vielfach schneller als Echtzeit
 	}
@@ -939,11 +1078,7 @@ func (m *HLSManager) ensureSegment(j *Job, k int) error {
 	// wenn ein früherer Lauf das Segment schon hat: Segmente eines Laufs
 	// schließen lückenlos aneinander an.
 	if !j.finished() && k >= start {
-		h := start - 1
-		for fileExists(j.genFile(g, segName(h+1))) {
-			h++
-		}
-		if k <= h+reach {
+		if k <= j.headOf(g)+reach {
 			setPick(g)
 			return nil // kommt gleich
 		}
@@ -1026,3 +1161,83 @@ func (m *HLSManager) servePlaylist(w http.ResponseWriter, r *http.Request, j *Jo
 }
 
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
+
+// headOf: letztes lückenlos fertiges Segment des Laufs g (Start-1 = noch
+// keins). Der Stand wird gemerkt, gelöschte ältere Segmente stören nicht.
+func (j *Job) headOf(g int) int {
+	j.mu.Lock()
+	h, ok := j.heads[g]
+	if !ok {
+		h = j.genStart[g] - 1
+	}
+	j.mu.Unlock()
+	for fileExists(j.genFile(g, j.segName(h+1))) {
+		h++
+	}
+	j.mu.Lock()
+	if j.heads == nil {
+		j.heads = map[int]int{}
+	}
+	if old, ok := j.heads[g]; !ok || h > old {
+		j.heads[g] = h
+	}
+	j.mu.Unlock()
+	return h
+}
+
+func (m *HLSManager) paceAll() {
+	m.mu.Lock()
+	jobs := make([]*Job, 0, len(m.jobs))
+	for _, j := range m.jobs {
+		jobs = append(jobs, j)
+	}
+	m.mu.Unlock()
+	for _, j := range jobs {
+		m.pace(j)
+	}
+}
+
+// pace hält FFmpeg an, sobald es weit genug vor der Wiedergabe liegt, lässt
+// es weiterlaufen, wenn der Player aufholt, und löscht alte Segmente.
+func (m *HLSManager) pace(j *Job) {
+	if !j.VOD || j.finished() {
+		return
+	}
+	L := j.segLen()
+	aheadSec := paceAheadTranscode
+	if j.Decision.CopyVideo {
+		aheadSec = paceAheadCopy
+	}
+	ahead := int(aheadSec / L)
+	j.mu.Lock()
+	g, want := j.gen, j.want
+	if want < 0 {
+		want = j.genStart[g]
+	}
+	j.mu.Unlock()
+	h := j.headOf(g)
+	j.mu.Lock()
+	if cmd := j.cmd; cmd != nil && cmd.Process != nil && g == j.gen {
+		switch {
+		case !j.paused && h >= want+ahead:
+			if suspend(cmd.Process, true) == nil {
+				j.paused = true
+			}
+		case j.paused && h < want+ahead-ahead/4:
+			if suspend(cmd.Process, false) == nil {
+				j.paused = false
+			}
+		}
+	}
+	from, gmax := j.pruned, j.gen
+	below := want - int(keepBehind/L)
+	if below > from {
+		j.pruned = below
+	}
+	j.mu.Unlock()
+	for k := from; k < below; k++ {
+		for gg := 0; gg <= gmax; gg++ {
+			_ = os.Remove(j.genFile(gg, j.segName(k)))
+		}
+	}
+}

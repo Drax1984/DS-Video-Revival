@@ -88,14 +88,25 @@ die Adresse über DSM mit HTTPS oder ein VPN nutzen.
   H.264 umgewandelt. Gesteuert wird das über das Geräteprofil, das die App
   mitschickt. Fortsetzen und Springen funktionieren.
 - H.264 mit 10 Bit wird immer umgewandelt, weil es die Geräte nicht abspielen können.
-- **Mediathek der App „Jellyfin“:** Startet ein Film nicht, versucht sie es von selbst noch einmal, erst mit
-  umgewandeltem Ton, dann vollständig umgewandelt.
+- **App „Jellyfin“ für Android:** Filme spielt der Player der App (ExoPlayer) direkt aus der Datei, auch MKV
+  und 4K. Wer in der App unter Einstellungen den Web-Player wählt, nutzt den Player der Mediathek.
+- **Mediathek der App „Jellyfin“:** Startet ein Film nicht, versucht sie es von selbst noch einmal, zuerst mit
+  einem eigenen Player (hls.js), dann mit umgewandeltem Ton, zuletzt vollständig umgewandelt.
 - **Untertitel:** Eingebettete Untertitel und SRT/ASS/VTT-Dateien neben dem
   Film. Bei der Umwandlung werden Textuntertitel getrennt geliefert, also nicht
   ins Bild eingebrannt. Bilduntertitel (PGS, VobSub) gibt es nur bei direkter
   Wiedergabe.
 - Herunterladen in der App (z.B. Findroid, Swiftfin) nur mit dem Recht
-  „Herunterladen“.
+  „Herunterladen“. In der Mediathek der App „Jellyfin“ gibt es dafür
+  „⤓ Herunterladen“. Die Datei landet in den Downloads der App: auf dem iPhone im
+  Reiter „Downloads“, unter Android über „Downloads öffnen“. Auf dem iPhone
+  bereitet der Server Dateien, die nicht MP4 sind, vorher als MP4 vor (H.264/HEVC
+  nur umverpackt). Die Mediathek zeigt Vorbereitung und Übertragung mit Restzeit.
+  Was danach in der App liegt, sieht sie nicht (Löschen in der App erfährt sie
+  nicht), daher gibt es keine Markierung „heruntergeladen“.
+- **Unterwegs:** Die Mediathek der App „Jellyfin“ misst vor dem Abspielen die
+  Leitung. Ist sie zu langsam für die Datei, wandelt der Server mit passender
+  Bitrate um. Das hängt meist am Upload des Heimanschlusses.
 
 ## Verbindungen und Sicherheit
 

@@ -13,12 +13,13 @@
   const de = ((navigator.languages && navigator.languages[0]) || navigator.language || "de").toLowerCase().startsWith("de");
   const EN = {
     "Suchen": "Search", "Abmelden": "Sign out", "Konto": "Account", "Passwort": "Password", "Anmelden": "Sign in",
-    "Mit Quick Connect anmelden": "Sign in with Quick Connect",
+    "Mit Quick Connect anmelden": "Sign in with Quick Connect", "Anderen Server wählen": "Choose another server",
+    "Server wechseln: in der App unten auf „Einstellungen“ tippen und dort den Server wählen oder hinzufügen.": "To switch servers, tap “Settings” at the bottom of the app and choose or add the server there.",
     "Code in der Weboberfläche von DS Video Revival unter „Jellyfin-Apps“ bestätigen:": "Confirm this code in the DS Video Revival web interface under “Jellyfin apps”:",
     "Wartet auf Bestätigung …": "Waiting for confirmation …", "Schließen": "Close", "Startseite": "Home",
     "Weiterschauen": "Continue watching", "Als Nächstes": "Next up", "Neu: {0}": "New: {0}", "Keine Titel.": "No titles.",
     "A–Z": "A–Z", "Zuletzt hinzugefügt": "Recently added", "Erscheinungsjahr": "Release year", "Bewertung": "Rating",
-    "Mehr laden": "Load more", "Suche: {0}": "Search: {0}", "▶ Abspielen": "▶ Play", "▶ Fortsetzen ab {0}": "▶ Resume from {0}",
+    "Erneut versuchen": "Try again", "Suche: {0}": "Search: {0}", "▶ Abspielen": "▶ Play", "▶ Fortsetzen ab {0}": "▶ Resume from {0}",
     "Staffel {0}": "Season {0}", "Folge {0}": "Episode {0}", "{0} Min.": "{0} min", "Regie:": "Director:", "Darsteller:": "Cast:",
     "Wird vorbereitet …": "Preparing …", "Wiedergabe nicht möglich: {0}": "Playback not possible: {0}",
     "Direktwiedergabe fehlgeschlagen – wird umgewandelt …": "Direct play failed – transcoding …",
@@ -28,7 +29,19 @@
     "Wiedergabe fehlgeschlagen – Ton wird umgewandelt …": "Playback failed – converting audio …",
     "Wiedergabe fehlgeschlagen – wird vollständig umgewandelt …": "Playback failed – fully transcoding …",
     "Vollständig umgewandelt": "Fully transcoded", "Zeitüberschreitung": "Timeout",
-    "Datei: {0}": "File: {0}", "Server: {0}": "Server: {0}", "nach {0} s": "after {0} s", "Prüfe Server …": "Checking server …",
+    "Apple-Player startet nicht – eigener Player …": "Apple player does not start – using built-in player …", "eigener Player": "built-in player",
+    "Datei: {0}": "File: {0}", "Leitung ca. {0} Mbit/s": "Connection approx. {0} Mbit/s", "aufs iPhone": "to the iPhone", "aufs Handy": "to the phone", "fürs iPhone": "for the iPhone", "fürs Handy": "for the phone", "zum Herunterladen": "for download",
+    "noch {0}": "{0} left", "gleich fertig": "almost done", "Heruntergeladen": "Downloaded",
+    "Auf dem iPhone – unter „Downloads“ abspielbar": "On the iPhone – play it under “Downloads”",
+    "Übertragung stockt bei {0} % – App im Vordergrund lassen": "Transfer stalled at {0} % – keep the app in the foreground",
+    "Wird {0} übertragen … {1} %": "Transferring {0} … {1} %", "Wird heruntergeladen … {0} %": "Downloading … {0} %",
+    "Download nicht gestartet – bitte erneut versuchen.": "Download did not start – please try again.", "Download wird gestartet …": "Starting download …",
+    "Wartet auf die Umwandlung …": "Waiting for conversion …", "Wird {0} vorbereitet … {1} %": "Preparing {0} … {1} %",
+    "Lädt …": "Loading …",
+    "⤓ Herunterladen": "⤓ Download", "Downloads öffnen": "Open downloads", 
+    
+    "Umwandlung fehlgeschlagen: {0}": "Conversion failed: {0}", "Herunterladen nicht möglich: {0}": "Download not possible: {0}",
+    "⤓ Originaldatei": "⤓ Original file", "Server: {0}": "Server: {0}", "nach {0} s": "after {0} s", "Prüfe Server …": "Checking server …",
   };
   const t = (k, ...a) => (de ? k : EN[k] || k).replace(/\{(\d)\}/g, (_, i) => a[+i] ?? "");
   document.documentElement.lang = de ? "de" : "en";
@@ -65,8 +78,29 @@
     stopQC();
     try { history.replaceState({ d: 0 }, "", "#/"); } catch (e) { location.hash = "#/"; }
     route();
+    nativeReady = registerNative();
   }
-  function signedOut() { auth = null; store.set("auth", null); route(); }
+  function signedOut() {
+    auth = null; store.set("auth", null);
+    if (window.NativeInterface) { try { localStorage.removeItem("jellyfin_credentials"); } catch (e) { /* egal */ } }
+    route();
+  }
+  // App „Jellyfin“ für Android: Sie lädt Dateien selbst herunter und braucht
+  // dafür die Anmeldung. Wie bei der Jellyfin-Weboberfläche liest sie Konto und
+  // Token aus „jellyfin_credentials“, sobald die Seite /Sessions/Capabilities/Full
+  // meldet. Ohne lesbaren Eintrag bricht die App die Verbindung ab – daher nur
+  // melden, wenn er sicher gespeichert ist.
+  async function registerNative() {
+    if (!auth || !window.NativeInterface) return;
+    try {
+      const v = JSON.stringify({ Servers: [{ UserId: auth.user, AccessToken: auth.token, ManualAddress: location.origin + BASE }] });
+      localStorage.setItem("jellyfin_credentials", v);
+      if (localStorage.getItem("jellyfin_credentials") !== v) return false;
+      await api("/Sessions/Capabilities/Full", { method: "POST", body: JSON.stringify({ PlayableMediaTypes: ["Video"], SupportedCommands: [], SupportsMediaControl: false }) });
+      await new Promise((r) => setTimeout(r, 1500)); // die App übernimmt die Anmeldung im Hintergrund
+      return true;
+    } catch (e) { return false; /* ohne Downloads und Player der App weiter nutzbar */ }
+  }
 
   $("#loginForm").addEventListener("submit", async (ev) => {
     ev.preventDefault();
@@ -92,6 +126,17 @@
         if (s.Authenticated) { clearInterval(qcTimer); signedIn(await api("/Users/AuthenticateWithQuickConnect", { method: "POST", body: JSON.stringify({ Secret: r.Secret }) })); }
       } catch (e) { stopQC(); $("#loginErr").textContent = e.message; }
     }, 3000);
+  });
+  // Anderen Server wählen: Die App „Jellyfin“ für Android öffnet ihre
+  // Serverauswahl. Die App fürs iPhone bietet dafür keinen Aufruf, dort
+  // verwaltet ihr Reiter „Einstellungen“ die Server.
+  const srvSelect = () => !!(window.NativeInterface && typeof window.NativeInterface.openServerSelection === "function");
+  const expoApp = () => !!(window.ReactNativeWebView || window.ExpoAppInfo || (window.NativeShell && typeof window.NativeShell.downloadFile === "function"));
+  function srvBtnShow() { $("#srvBtn").hidden = !(srvSelect() || expoApp()); }
+  $("#srvBtn").addEventListener("click", () => {
+    if (srvSelect()) { window.NativeInterface.openServerSelection(); return; }
+    $("#srvHint").textContent = t("Server wechseln: in der App unten auf „Einstellungen“ tippen und dort den Server wählen oder hinzufügen.");
+    $("#srvHint").hidden = false;
   });
   $("#logoutBtn").addEventListener("click", async () => { try { await api("/Sessions/Logout", { method: "POST" }); } catch (e) { /* lokal trotzdem */ } signedOut(); });
 
@@ -162,13 +207,41 @@
     const r = await api(`/Items?userId=${auth.user}&ParentId=${st.id}&Recursive=true&IncludeItemTypes=${st.types}&SortBy=${st.sort},SortName&SortOrder=${desc}&StartIndex=${start}&Limit=${limit}&${fields}`);
     st.items = st.items.concat(r.Items || []); st.total = r.TotalRecordCount || 0;
   }
-  function libGrid() {
-    const st = libState;
-    $("#grid").innerHTML = st.items.map((it) => card(it)).join("") || `<p class="empty">${esc(t("Keine Titel."))}</p>`;
+  // Neue Titel ab „from“ anhängen (bereits gezeigte bleiben stehen).
+  function libGrid(from) {
+    const st = libState, grid = $("#grid");
+    if (!st.items.length) grid.innerHTML = `<p class="empty">${esc(t("Keine Titel."))}</p>`;
+    else {
+      const tmp = document.createElement("div");
+      tmp.innerHTML = st.items.slice(from || 0).map((it) => card(it)).join("");
+      wireCards(tmp, st.items);
+      grid.append(...tmp.childNodes);
+    }
     $("#libCount").textContent = st.total ? String(st.total) : "";
-    $("#moreBtn").hidden = st.items.length >= st.total;
-    wireCards($("#grid"), st.items);
+    $("#moreBox").hidden = st.items.length >= st.total;
     libLoaded[st.id] = st.items.length;
+  }
+  // Endlos scrollen: Kommt das Ende der Liste in Sicht (mit Vorlauf), die
+  // nächsten Titel laden – ohne Knopf „Mehr laden“.
+  let libObs = null, libBusy = false;
+  async function libMore() {
+    const st = libState, box = $("#moreBox");
+    if (libBusy || !st || !box || box.hidden || st.items.length >= st.total) return;
+    libBusy = true;
+    box.innerHTML = `<span class="muted">${esc(t("Lädt …"))}</span>`;
+    try {
+      const n = st.items.length;
+      await libPage(st, n, 60);
+      if (st !== libState || !document.body.contains(box)) return;
+      libGrid(n);
+      box.innerHTML = "";
+      // Ist das Ende noch in Sicht (großer Bildschirm), gleich weiterladen
+      if (libObs) { libObs.unobserve(box); libObs.observe(box); }
+    } catch (e) {
+      if (st !== libState || !document.body.contains(box)) return;
+      box.innerHTML = `<button type="button" class="ghost">${esc(t("Erneut versuchen"))}</button>`;
+      box.querySelector("button").addEventListener("click", libMore);
+    } finally { libBusy = false; }
   }
   async function library(id, want) {
     const v = views.find((x) => x.Id === id);
@@ -177,13 +250,14 @@
     await libPage(st, 0, Math.max(60, want || 0));
     libState = st;
     view.innerHTML = `<div class="tools"><select id="sortSel">${[["SortName", t("A–Z")], ["DateCreated", t("Zuletzt hinzugefügt")], ["ProductionYear", t("Erscheinungsjahr")], ["CommunityRating", t("Bewertung")]]
-      .map(([k, l]) => `<option value="${k}"${k === st.sort ? " selected" : ""}>${esc(l)}</option>`).join("")}</select><span class="muted" id="libCount"></span></div><div class="grid" id="grid"></div><button type="button" class="ghost more" id="moreBtn" hidden>${esc(t("Mehr laden"))}</button>`;
+      .map(([k, l]) => `<option value="${k}"${k === st.sort ? " selected" : ""}>${esc(l)}</option>`).join("")}</select><span class="muted" id="libCount"></span></div><div class="grid" id="grid"></div><div class="more" id="moreBox" hidden></div>`;
     $("#sortSel").addEventListener("change", () => { store.set("sort", $("#sortSel").value); library(id).then(() => window.scrollTo(0, 0), showErr); });
-    $("#moreBtn").addEventListener("click", async (ev) => {
-      ev.target.disabled = true;
-      try { await libPage(libState, libState.items.length, 60); libGrid(); } catch (e) { showErr(e); } finally { ev.target.disabled = false; }
-    });
     libGrid();
+    if (libObs) libObs.disconnect();
+    if ("IntersectionObserver" in window) {
+      libObs = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) libMore(); }, { rootMargin: "0px 0px 1200px 0px" });
+      libObs.observe($("#moreBox"));
+    } else window.onscroll = () => { const b = $("#moreBox"); if (b && b.getBoundingClientRect().top < innerHeight + 1200) libMore(); };
   }
 
   async function search(q) {
@@ -213,8 +287,10 @@
       const btn = [];
       if (pos > 30 && !ud.Played) btn.push(`<button type="button" class="primary" data-start="${ticks(pos)}">${esc(t("▶ Fortsetzen ab {0}", fmtTime(pos)))}</button>`);
       btn.push(`<button type="button" class="${btn.length ? "ghost" : "primary"}" data-start="0">${esc(t("▶ Abspielen"))}</button>`);
-      $("#acts").innerHTML = btn.join("");
+      if (it.CanDownload) btn.push(`<button type="button" class="ghost" id="dlBtn">${esc(t("⤓ Herunterladen"))}</button>`);
+      $("#acts").innerHTML = btn.join("") + '<p class="dlmsg muted" id="dlMsg" hidden></p>';
       $$("#acts [data-start]").forEach((b) => b.addEventListener("click", () => play(it, +b.dataset.start)));
+      if (it.CanDownload) { $("#dlBtn").addEventListener("click", () => download(it, $("#dlMsg"))); dlResume(it, $("#dlMsg")); }
       return;
     }
     const seasons = (await api(`/Shows/${it.Id}/Seasons?userId=${auth.user}`)).Items || [];
@@ -227,9 +303,14 @@
       const eu = e.UserData || {}, ep = secs(eu.PlaybackPositionTicks), src = img(e, "Primary", 240);
       const pct = eu.PlayedPercentage && !eu.Played ? Math.min(100, eu.PlayedPercentage) : 0;
       return `<div class="ep"><button type="button" class="card wide" data-ep="${esc(e.Id)}" data-start="${ep > 30 && !eu.Played ? ticks(ep) : 0}"><div class="pic">${src ? `<img loading="lazy" src="${esc(src)}" alt="">` : `<div class="ph">▶</div>`}${eu.Played ? '<span class="seen">✓</span>' : ""}${pct ? `<span class="prog"><i style="width:${pct}%"></i></span>` : ""}</div></button>
-        <div class="eb"><div class="et">${esc((e.IndexNumber != null ? e.IndexNumber + ". " : "") + (e.Name || t("Folge {0}", e.IndexNumber)))}</div>${e.RunTimeTicks >= 6e8 ? `<div class="s muted">${esc(t("{0} Min.", Math.round(secs(e.RunTimeTicks) / 60)))}${ep > 30 && !eu.Played ? " · " + esc(fmtTime(ep)) : ""}</div>` : ""}${e.Overview ? `<div class="eo">${esc(e.Overview)}</div>` : ""}</div></div>`;
+        <div class="eb"><div class="et">${esc((e.IndexNumber != null ? e.IndexNumber + ". " : "") + (e.Name || t("Folge {0}", e.IndexNumber)))}${e.CanDownload ? ` <button type="button" class="dl" data-dl="${esc(e.Id)}" title="${esc(t("⤓ Herunterladen"))}" aria-label="${esc(t("⤓ Herunterladen"))}">⤓</button>` : ""}</div><p class="dlmsg muted" data-dlmsg="${esc(e.Id)}" hidden></p>${e.RunTimeTicks >= 6e8 ? `<div class="s muted">${esc(t("{0} Min.", Math.round(secs(e.RunTimeTicks) / 60)))}${ep > 30 && !eu.Played ? " · " + esc(fmtTime(ep)) : ""}</div>` : ""}${e.Overview ? `<div class="eo">${esc(e.Overview)}</div>` : ""}</div></div>`;
     }).join("");
     $$("[data-ep]").forEach((b) => b.addEventListener("click", () => play(eps.find((e) => e.Id === b.dataset.ep), +b.dataset.start)));
+    $$("[data-dl]").forEach((b) => {
+      const e = eps.find((x) => x.Id === b.dataset.dl), box = $(`[data-dlmsg="${CSS.escape(e.Id)}"]`);
+      b.addEventListener("click", () => download(e, box));
+      dlResume(e, box);
+    });
     $$("#eps img").forEach((im) => im.addEventListener("error", () => im.remove()));
     const nextEp = eps.find((e) => !(e.UserData || {}).Played);
     if (nextEp) {
@@ -237,6 +318,155 @@
       $("#acts").innerHTML = `<button type="button" class="primary">${esc(np > 30 ? t("▶ Fortsetzen ab {0}", fmtTime(np)) : t("▶ Abspielen"))} · S${nextEp.ParentIndexNumber}E${nextEp.IndexNumber}</button>`;
       $("#acts button").addEventListener("click", () => play(nextEp, np > 30 ? ticks(np) : 0));
     }
+  }
+
+  // ---------- Herunterladen ----------
+  // In der App „Jellyfin“ übernimmt die App das Herunterladen (Reiter
+  // „Downloads“, offline abspielbar). Ihr Player kann auf dem iPhone nur MP4 –
+  // andere Dateien wandelt der Server dafür vorher um (wie bei DS video).
+  const IOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const nativeDl = () => !!(window.NativeShell && typeof window.NativeShell.downloadFile === "function");
+  const absUrl = (p) => new URL(BASE + p, location.href).href;
+  const dlName = (it, ext) => ((isEp(it) ? `${it.SeriesName} - S${it.ParentIndexNumber}E${it.IndexNumber} - ${it.Name}` : it.Name + (it.ProductionYear ? ` (${it.ProductionYear})` : "")) || "Video").replace(/[\\/:*?"<>|]+/g, " ").trim() + "." + ext;
+  const needsMp4 = (it) => IOS && nativeDl() && !/^(mp4|m4v|mov)$/i.test(it.Container || "");
+  // Gestartete Downloads, deren Übertragung noch läuft (Id → Startzeit).
+  // Was danach in der App liegt, kann die Seite nicht sehen (Löschen in der
+  // App erfährt sie nicht) – daher keine Markierung „heruntergeladen“.
+  const dlPend = () => store.get("dlp:" + (auth ? auth.user : "")) || {};
+  function setDl(key, id, v) { const m = store.get(key + (auth ? auth.user : "")) || {}; if (v == null) delete m[id]; else m[id] = v; store.set(key + (auth ? auth.user : ""), m); }
+  const ANDROID_APP = () => !!window.NativeInterface;
+  const DEV = () => (IOS ? t("aufs iPhone") : ANDROID_APP() ? t("aufs Handy") : "");
+  const DEV_FOR = () => (IOS ? t("fürs iPhone") : ANDROID_APP() ? t("fürs Handy") : t("zum Herunterladen"));
+
+  function startDownload(it, url, filename) {
+    setDl("dlp:", it.Id, Date.now());
+    if (nativeDl()) {
+      window.NativeShell.downloadFile({ url, filename, title: it.Name, itemId: it.Id, serverId: it.ServerId,
+        item: { ...it, Path: filename, Container: filename.split(".").pop() } });
+      return;
+    }
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  }
+  function original(it) {
+    const ext = (it.Container || "mkv").split(",")[0].toLowerCase();
+    startDownload(it, absUrl(`/Items/${it.Id}/Download?api_key=${encodeURIComponent(auth.token)}`), dlName(it, ext));
+  }
+  // Meldung mit Restzeit: läuft jede Sekunde herunter und wird bei jeder
+  // Abfrage an den tatsächlichen Fortschritt angepasst.
+  function dlMsg(box, msg, left, extra) {
+    box.hidden = false;
+    box.dataset.msg = msg;
+    if (left != null && left >= 0) box.dataset.until = String(Date.now() + left * 1000); else delete box.dataset.until;
+    dlRender(box);
+    if (extra) box.appendChild(extra);
+  }
+  function dlRender(box) {
+    let txt = box.dataset.msg || "";
+    if (box.dataset.until) {
+      const left = Math.round((+box.dataset.until - Date.now()) / 1000);
+      txt += " · " + (left > 0 ? t("noch {0}", fmtTime(left)) : t("gleich fertig"));
+    }
+    const keep = box.querySelector("button");
+    box.textContent = txt;
+    if (keep) { box.append(" "); box.appendChild(keep); }
+  }
+  setInterval(() => $$(".dlmsg[data-until]").forEach(dlRender), 1000);
+  // Stand anzeigen; true = weiter abfragen. want: Nutzer hat „Herunterladen“
+  // gedrückt (fertige Umwandlung dann sofort laden).
+  function dlShow(it, box, st, want) {
+    const tr = st.Transfer, pend = dlPend()[it.Id];
+    if (pend && tr && tr.Done) {
+      setDl("dlp:", it.Id, null);
+      let extra = null;
+      if (ANDROID_APP() && typeof window.NativeShell.openDownloadManager === "function") {
+        extra = document.createElement("button"); extra.type = "button"; extra.className = "ghost"; extra.textContent = t("Downloads öffnen");
+        extra.addEventListener("click", () => window.NativeShell.openDownloadManager());
+      }
+      dlMsg(box, "✓ " + (IOS ? t("Auf dem iPhone – unter „Downloads“ abspielbar") : t("Heruntergeladen")), null, extra);
+      return false;
+    }
+    if (pend && tr && !tr.Done) {
+      const pct = tr.Total > 0 ? Math.min(99, Math.floor((tr.Sent / tr.Total) * 100)) : 0;
+      if (tr.Stalled) dlMsg(box, t("Übertragung stockt bei {0} % – App im Vordergrund lassen", pct), null);
+      else dlMsg(box, (DEV() ? t("Wird {0} übertragen … {1} %", DEV(), pct) : t("Wird heruntergeladen … {0} %", pct)), tr.TimeLeft);
+      return true;
+    }
+    if (pend && !tr) {
+      if (Date.now() - pend > 120000) { setDl("dlp:", it.Id, null); dlMsg(box, t("Download nicht gestartet – bitte erneut versuchen."), null); return false; }
+      if (!nativeDl()) { setDl("dlp:", it.Id, null); box.hidden = true; return false; } // Browser: eigener Download
+      dlMsg(box, t("Download wird gestartet …"), null);
+      return true;
+    }
+    if (st.State === "done") {
+      if (!want) { box.hidden = true; return false; }
+      startDownload(it, absUrl(`/DsvrOffline/File/${st.Id}?api_key=${encodeURIComponent(auth.token)}`), dlName(it, "mp4"));
+      dlMsg(box, t("Download wird gestartet …"), null);
+      return nativeDl();
+    }
+    if (st.State === "error" || st.State === "stop") { dlMsg(box, t("Umwandlung fehlgeschlagen: {0}", st.Error || st.State), null); return false; }
+    if (st.State === "wait") { dlMsg(box, t("Wartet auf die Umwandlung …"), null); return true; }
+    if (st.State === "process") {
+      dlMsg(box, t("Wird {0} vorbereitet … {1} %", DEV_FOR(), Math.round((st.Progress || 0) * 100)), st.TimeLeft > 0 ? st.TimeLeft : null);
+      return true;
+    }
+    box.hidden = true;
+    return false;
+  }
+  const dlPolls = {};
+  function dlPoll(it, box, want, delay) {
+    clearTimeout(dlPolls[it.Id]);
+    dlPolls[it.Id] = setTimeout(async () => {
+      if (!document.body.contains(box)) return; // Ansicht verlassen
+      try { if (dlShow(it, box, await api(`/DsvrOffline/${it.Id}`), want)) dlPoll(it, box, want, 2000); } catch (e) { dlPoll(it, box, want, 5000); }
+    }, delay);
+  }
+  async function download(it, box) {
+    box.dataset.item = it.Id;
+    dlMsg(box, t("Lade …"), null);
+    if (!needsMp4(it)) {
+      original(it);
+      dlMsg(box, t("Download wird gestartet …"), null);
+      dlPoll(it, box, false, 1500);
+      return;
+    }
+    try {
+      const st = await api(`/DsvrOffline/${it.Id}`, { method: "POST", body: "{}" });
+      setDl("dlp:", it.Id, null);
+      if (dlShow(it, box, st, true)) dlPoll(it, box, true, 2000);
+    } catch (e) { dlMsg(box, t("Herunterladen nicht möglich: {0}", e.message), null); }
+  }
+  // Ansicht wieder geöffnet: laufende Umwandlung oder Übertragung weiter zeigen
+  async function dlResume(it, box) {
+    box.dataset.item = it.Id;
+    const pend = !!dlPend()[it.Id];
+    if (!pend && !needsMp4(it)) return;
+    try {
+      const st = await api(`/DsvrOffline/${it.Id}`);
+      if (pend || st.State === "wait" || st.State === "process") { if (dlShow(it, box, st, false)) dlPoll(it, box, false, 2000); }
+    } catch (e) { /* egal */ }
+  }
+
+  // ---------- Bandbreite ----------
+  // Wie Jellyfin: vor der Wiedergabe die Leitung zum Server messen. Ist sie
+  // langsamer als die Datei (z.B. unterwegs, Upload des Heimanschlusses),
+  // wandelt der Server mit passender Bitrate um.
+  let bw = { at: 0, bps: 0 };
+  async function bandwidth() {
+    if (Date.now() - bw.at < 120000) return bw.bps;
+    const test = async (size) => {
+      const t0 = performance.now();
+      const r = await fetch(`${BASE}/Playback/BitrateTest?size=${size}`, { headers: { Authorization: header() }, cache: "no-store" });
+      const n = (await r.arrayBuffer()).byteLength;
+      return n * 8 / Math.max((performance.now() - t0) / 1000, 0.02);
+    };
+    let bps = 0;
+    try {
+      bps = await test(500000);
+      if (bps > 8e6) bps = await test(3000000);
+    } catch (e) { bps = 0; }
+    bw = { at: Date.now(), bps };
+    return bps;
   }
 
   // ---------- Wiedergabe ----------
@@ -261,21 +491,55 @@
 
   // Klappt die Wiedergabe nicht, wird stufenweise mehr umgewandelt:
   // 0 normal · 1 ohne Direktwiedergabe · 2 Ton → AAC · 3 Bild und Ton umwandeln.
-  let attempt = 0, playT0 = 0;
+  let attempt = 0, playT0 = 0, maxBr = 0, jsTried = -1;
+  // Eigener Player (hls.js über Managed Media Source, ab iOS 17.1) als
+  // Rückfall, wenn der Apple-Player eine Liste nicht startet.
+  const canJs = () => !!(window.Hls && window.Hls.isSupported());
   const NEXT_MSG = ["", "Direktwiedergabe fehlgeschlagen – wird umgewandelt …", "Wiedergabe fehlgeschlagen – Ton wird umgewandelt …", "Wiedergabe fehlgeschlagen – wird vollständig umgewandelt …"];
-  async function play(item, startTicks, level) {
+  // ---------- Player der App „Jellyfin“ für Android ----------
+  // Die Android-App bringt einen eigenen Player mit (ExoPlayer, in der App
+  // voreingestellt). Er spielt MKV, HEVC und 4K direkt aus der Datei und spult
+  // darin – wie die DS-video-Apps. Er holt sich Wiedergabeinfos und meldet den
+  // Fortschritt selbst über die Jellyfin-Schnittstelle. Ist in der App der
+  // Web-Player eingestellt, spielt die Mediathek selbst.
+  let nativeReady = Promise.resolve(false), followT = 0;
+  const appPlayer = () => { try { return !!(window.NativePlayer && window.NativePlayer.isEnabled()); } catch (e) { return false; } };
+  async function playNative(item, startTicks) {
+    const bps = await bandwidth();
+    const br = bps > 0 && bps < 40e6 ? Math.max(Math.round(bps * 0.8), 700000) : 120000000;
+    window.NativePlayer.loadPlayer(JSON.stringify({ ids: [item.Id], startIndex: 0, startPositionTicks: startTicks || 0 }),
+      JSON.stringify({ maxStreamingBitrateLocal: br, maxStreamingBitrateRemote: br }));
+    // Die App meldet das Ende nicht an die Seite: Stand im Hintergrund nachführen
+    dirty = true;
+    clearInterval(followT);
+    let last = null, same = 0;
+    followT = setInterval(async () => {
+      try {
+        const u = (await api(`/Users/${auth.user}/Items/${item.Id}`)).UserData || {};
+        const k = (u.PlaybackPositionTicks || 0) + ":" + !!u.Played;
+        if (k === last) { if (++same >= 6) clearInterval(followT); return; }
+        last = k; same = 0; dirty = true; route(true);
+      } catch (e) { clearInterval(followT); }
+    }, 10000);
+  }
+
+  async function play(item, startTicks, level, useJs) {
     level = level || 0;
+    if (!level && !useJs && appPlayer() && await nativeReady && appPlayer()) { playNative(item, startTicks); return; }
     const my = ++attempt;
-    if (!level) playT0 = Date.now();
+    if (!level && !useJs) { playT0 = Date.now(); jsTried = -1; }
     await stop(false);
     $("#pTitle").textContent = isEp(item) ? `${item.SeriesName} – S${item.ParentIndexNumber}E${item.IndexNumber} ${item.Name}` : item.Name;
     if (!level) { $("#pMsg").textContent = t("Wird vorbereitet …"); $("#pDiag").hidden = true; }
     $("#player").hidden = false;
     let pi;
     try {
+      const bps = await bandwidth();
+      // unter ~40 Mbit/s: 80 % der gemessenen Leitung als Obergrenze
+      maxBr = bps > 0 && bps < 40e6 ? Math.max(Math.round(bps * 0.8), 700000) : 0;
       pi = await api(`/Items/${item.Id}/PlaybackInfo?userId=${auth.user}`, { method: "POST",
         body: JSON.stringify({ DeviceProfile: profile(), StartTimeTicks: startTicks || 0, EnableDirectPlay: level < 1, EnableTranscoding: true,
-          AllowAudioStreamCopy: level < 2, AllowVideoStreamCopy: level < 3, AutoOpenLiveStream: false }) });
+          AllowAudioStreamCopy: level < 2, AllowVideoStreamCopy: level < 3, AutoOpenLiveStream: false, ...(maxBr ? { MaxStreamingBitrate: maxBr } : {}) }) });
     } catch (e) { $("#pMsg").textContent = t("Wiedergabe nicht möglich: {0}", e.message); return; }
     if (my !== attempt) return;
     const src = (pi.MediaSources || [])[0];
@@ -313,17 +577,19 @@
         const msg = t("Wiedergabe nicht möglich: {0}", why) + " (" + t("nach {0} s", Math.round((Date.now() - playT0) / 1000)) + ")\n" + t("Datei: {0}", fileInfo(src));
         $("#pMsg").textContent = msg + (src.TranscodingUrl ? "\n" + t("Prüfe Server …") : "");
         $("#pDiag").textContent = ""; $("#pDiag").hidden = true;
-        const diag = () => api("/DsvrDiag/Requests").then((list) => {
-          if (my !== attempt || !Array.isArray(list) || !list.length) return;
-          const tm = (d) => new Date(d).toTimeString().slice(0, 8);
-          $("#pDiag").textContent = list.slice(-14).map((e) => `${tm(e.At)} ${e.Method} ${e.Path.split("/").slice(-2).join("/")}${e.Range ? " [" + e.Range.replace("bytes=", "") + "]" : ""} → ${e.Status} ${e.Bytes} B ${e.Agent}`).join("\n");
-          $("#pDiag").hidden = false;
-        }).catch(() => {});
-        if (src.TranscodingUrl) checkServer(BASE + src.TranscodingUrl.replace("/master.m3u8?", "/main.m3u8?")).then((r) => { if (my === attempt) $("#pMsg").textContent = msg + "\n" + r; diag(); });
+        const diag = () => showRequests(my, 14);
+        if (src.TranscodingUrl) checkServer(BASE + src.TranscodingUrl).then((r) => { if (my === attempt) $("#pMsg").textContent = msg + "\n" + r; diag(); });
         else diag();
         return;
       }
       const pos = Math.max(cur.start, video.currentTime || 0);
+      // Erst denselben Stream mit dem eigenen Player versuchen
+      if (src.TranscodingUrl && !useJs && jsTried !== level && canJs()) {
+        jsTried = level;
+        $("#pMsg").textContent = t("Apple-Player startet nicht – eigener Player …");
+        play(item, ticks(pos), level, true);
+        return;
+      }
       $("#pMsg").textContent = t(NEXT_MSG[next]);
       play(item, ticks(pos), next);
     };
@@ -335,26 +601,52 @@
       video.addEventListener("loadedmetadata", begin, { once: true });
       video.addEventListener("error", () => fail(mediaErr()), { once: true });
     } else if (src.TranscodingUrl) {
-      $("#pMsg").textContent = t(level >= 3 ? "Vollständig umgewandelt" : "Umgewandelt");
-      // Direkt die Segmentliste (main.m3u8) statt der Übersicht (master.m3u8) –
-      // so wie die DS-video-Apps sie bekommen.
-      const url = BASE + src.TranscodingUrl.replace("/master.m3u8?", "/main.m3u8?");
-      if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      $("#pMsg").textContent = t(level >= 3 ? "Vollständig umgewandelt" : "Umgewandelt") + (useJs ? " · " + t("eigener Player") : "") + (maxBr ? " · " + t("Leitung ca. {0} Mbit/s", (bw.bps / 1e6).toFixed(1).replace(".", de ? "," : ".")) : "");
+      // Übersicht (master.m3u8) mit CODECS, Auflösung und VIDEO-RANGE – wie
+      // bei Jellyfin. Lädt der Apple-Player die Segmentliste direkt, fragt er
+      // fMP4-Segmente (HEVC/4K) endlos ab.
+      const url = BASE + src.TranscodingUrl;
+      if (!useJs && video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.disableRemotePlayback = false;
         video.src = url; video.addEventListener("loadedmetadata", begin, { once: true });
         video.addEventListener("error", () => fail(mediaErr()), { once: true });
-      } else if (window.Hls && window.Hls.isSupported()) {
-        hls = new window.Hls({ maxBufferLength: 60, startPosition: cur.start > 0 ? cur.start : -1 });
+      } else if (canJs()) {
+        video.disableRemotePlayback = !!useJs; // Managed Media Source verlangt das ohne AirPlay-Quelle
+        hls = new window.Hls({ preferManagedMediaSource: true, maxBufferLength: 30, maxMaxBufferLength: 60, backBufferLength: 30, startPosition: cur.start > 0 ? cur.start : -1 });
         hls.on(window.Hls.Events.ERROR, (_, d) => { if (d.fatal) fail(d.details); });
         hls.loadSource(url); hls.attachMedia(video);
         hls.on(window.Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
       } else { $("#pMsg").textContent = t("Dieses Gerät kann HLS nicht abspielen."); return; }
-      // Startet die Wiedergabe gar nicht, ebenfalls die nächste Stufe versuchen
-      watch = setTimeout(() => { if (video.readyState < 1) fail(t("Zeitüberschreitung")); }, 60000);
-      video.addEventListener("loadedmetadata", () => clearTimeout(watch), { once: true });
+      // Läuft die Wiedergabe nicht an (z.B. Liste wird endlos geladen), den
+      // eigenen Player bzw. die nächste Stufe versuchen. Vollständiges
+      // Umwandeln braucht auf der NAS länger.
+      watch = setTimeout(() => { if (video.readyState < 3 && !(video.currentTime > cur.start + 0.5)) fail(t("Zeitüberschreitung")); }, level >= 3 ? 60000 : 25000);
+      video.addEventListener("playing", () => clearTimeout(watch), { once: true });
     } else { $("#pMsg").textContent = t("Wiedergabe nicht möglich: {0}", "—"); return; }
     report("", { CanSeek: true });
     clearInterval(progT);
     progT = setInterval(() => report("/Progress"), 10000);
+    // Lädt es länger als 10 s, die Abrufe des Players laufend anzeigen
+    const t1 = Date.now();
+    const slow = () => {
+      if (my !== attempt || !cur || $("#player").hidden) return;
+      if (video.readyState >= 3 || !video.paused && video.currentTime > 0.5) { $("#pDiag").hidden = true; return; }
+      if (Date.now() - t1 > 10000) showRequests(my, 10, t("Lädt …") + ` ${Math.round((Date.now() - t1) / 1000)} s · ` + fileInfo(src));
+      setTimeout(slow, 4000);
+    };
+    setTimeout(slow, 4000);
+  }
+
+  // Letzte Abrufe der Wiedergabe (Server-Protokoll) unter der Meldung zeigen
+  function showRequests(my, n, head) {
+    return api("/DsvrDiag/Requests").then((list) => {
+      if (my !== attempt || !Array.isArray(list)) return;
+      const tm = (d) => new Date(d).toTimeString().slice(0, 8);
+      const kb = (b) => b >= 1e6 ? (b / 1e6).toFixed(1) + " MB" : Math.round(b / 1e3) + " kB";
+      const lines = list.slice(-n).map((e) => `${tm(e.At)} ${e.Path.split("/").pop()}${e.Range ? " [" + e.Range.replace("bytes=", "") + "]" : ""} → ${e.Status} ${kb(e.Bytes)} ${e.Ms} ms ${e.Agent}`);
+      $("#pDiag").textContent = (head ? head + "\n" : "") + lines.join("\n");
+      $("#pDiag").hidden = false;
+    }).catch(() => {});
   }
 
   // Kurzbeschreibung der Datei (Video/Ton) für Fehlermeldungen
@@ -440,6 +732,7 @@
     $("#login").hidden = loggedIn; $("#bar").hidden = !loggedIn; $("#chips").hidden = !loggedIn;
     if (!loggedIn) {
       view.innerHTML = ""; dview.innerHTML = ""; dview.hidden = true; view.hidden = false; listHash = shown = null;
+      srvBtnShow(); setTimeout(srvBtnShow, 1500); // Skripte der App kommen teils erst nach dem Laden
       try { const info = await api("/System/Info/Public"); $("#srvName").textContent = info.ServerName || ""; } catch (e) { /* egal */ }
       return;
     }
@@ -491,10 +784,28 @@
     if (location.hash.replace(/^#!?\/?/, "") === "") route(); else location.hash = "#/";
   }
   $("#backBtn").addEventListener("click", goBack);
-  // Die App „Jellyfin“ ruft für die Zurück-Taste (Android) und den Tab
-  // „Startseite“ den Router der Jellyfin-Weboberfläche auf (window.Emby.Page).
+  // Die App „Jellyfin“ (iPhone) ruft für den Tab „Startseite“ den Router der
+  // Jellyfin-Weboberfläche auf (window.Emby.Page).
   window.Emby = window.Emby || {};
   window.Emby.Page = { canGoBack, back: goBack, goHome };
+  // Android: Zurück-Taste → window.NavigationHelper.goBack() (sonst ein Plugin
+  // der Jellyfin-Weboberfläche); ganz oben beendet sie die App. Die Knöpfe der
+  // Benachrichtigung steuern über playbackManager den Player.
+  window.NavigationHelper = {
+    goBack() {
+      if (canGoBack()) goBack();
+      else if (window.NativeInterface && typeof window.NativeInterface.exitApp === "function") window.NativeInterface.exitApp();
+    },
+    playbackManager: {
+      playPause() { if (video.paused) video.play().catch(() => {}); else video.pause(); },
+      play() { video.play().catch(() => {}); }, pause() { video.pause(); },
+      stop() { if (!$("#player").hidden) stop(true); },
+      seekMs(ms) { video.currentTime = ms / 1000; },
+      sendCommand(c) { if (c && c.Name === "SetVolume" && c.Arguments) video.volume = Math.min(1, Math.max(0, c.Arguments.Volume / 100)); },
+      nextTrack() {}, previousTrack() {}, fastForward() { video.currentTime += 30; }, rewind() { video.currentTime -= 10; },
+    },
+  };
 
   route();
+  nativeReady = registerNative();
 })();

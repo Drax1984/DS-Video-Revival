@@ -47,7 +47,14 @@ type Decision struct {
 	CopyAudio bool   `json:"copy_audio"`
 	HEVC      bool   `json:"hevc"`
 	MaxHeight int    `json:"max_height,omitempty"` // 0 = 1080
-	Client    string `json:"client,omitempty"`     // Caps-Name (Wahl des Ton-Encoders)
+	// MaxRate: Obergrenze der Videobitrate beim Umwandeln (Bit/s, 0 = Standard),
+	// z.B. für langsame Verbindungen von unterwegs.
+	MaxRate int64 `json:"max_rate,omitempty"`
+	// TS: MPEG-TS-Segmente statt fMP4 (durchsuchbare Liste, nur H.264 –
+	// HEVC geht bei Apple nur in fMP4). So liefert auch Jellyfin an iPhone und
+	// iPad, wenn die App „ts“ als Container nennt.
+	TS     bool   `json:"ts,omitempty"`
+	Client string `json:"client,omitempty"` // Caps-Name (Wahl des Ton-Encoders)
 	// Duration der Quelle (Sekunden). >0: vollständige, durchsuchbare HLS-Liste
 	// (VOD) – Springen/Fortsetzen an jede Stelle, FFmpeg startet bei Bedarf neu.
 	Duration float64 `json:"duration,omitempty"`

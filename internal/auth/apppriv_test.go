@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -315,5 +316,59 @@ func TestWebIfLoginKeepsDSMCookie(t *testing.T) {
 	rec = do("api=SYNO.API.Auth&version=6&method=login&account=anna&passwd=x&session=FileStation")
 	if len(rec.Result().Cookies()) == 0 {
 		t.Fatal("App-Anmeldung ohne Cookie")
+	}
+}
+
+// Weboberfläche (session=DSVideoRevival): Lehnt DSM den Namen ab, wird der
+// bewährte Sitzungsname gemerkt – auch über einen Neustart – und beim nächsten
+// Mal sofort genommen (eine DSM-Anmeldung statt zwei).
+func TestWebIfLoginRemembersSession(t *testing.T) {
+	var sessions []string
+	dsm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		q, _ := url.ParseQuery(string(b))
+		w.Header().Set("Content-Type", "application/json")
+		if q.Get("method") == "login" {
+			s := q.Get("session")
+			if !q.Has("session") {
+				s = "-"
+			}
+			sessions = append(sessions, s)
+			if s == "DSVideoRevival" {
+				io.WriteString(w, `{"error":{"code":402},"success":false}`)
+				return
+			}
+			io.WriteString(w, `{"data":{"sid":"W1"},"success":true}`)
+			return
+		}
+		io.WriteString(w, `{"success":false,"error":{"code":103}}`)
+	}))
+	defer dsm.Close()
+	up, _ := upstream.New(dsm.URL)
+	pref := filepath.Join(t.TempDir(), "auth-sessions.json")
+	login := func(a *Adapter) {
+		body := "api=SYNO.API.Auth&version=6&method=login&account=lena&passwd=x&session=DSVideoRevival&format=sid"
+		r := httptest.NewRequest("POST", "/webapi/entry.cgi", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req, _ := webapi.Parse(r)
+		rec := httptest.NewRecorder()
+		a.HandleAuth(rec, req, []byte(body))
+		if !strings.Contains(rec.Body.String(), `"sid":"W1"`) {
+			t.Fatalf("Antwort %s", rec.Body.String())
+		}
+	}
+	a := NewAdapter("dsm", up, nil, NewStore(""), nil)
+	a.PrefFile = pref
+	login(a)
+	if strings.Join(sessions, ",") != "DSVideoRevival,-" {
+		t.Fatalf("erste Anmeldung: %v", sessions)
+	}
+	// Neustart: neuer Adapter, gemerkter Name aus der Datei
+	sessions = nil
+	b := NewAdapter("dsm", up, nil, NewStore(""), nil)
+	b.PrefFile = pref
+	login(b)
+	if strings.Join(sessions, ",") != "-" {
+		t.Fatalf("nach Neustart: %v", sessions)
 	}
 }

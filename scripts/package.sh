@@ -5,12 +5,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 VERSION="${VERSION:-$(cat VERSION)}"
-BUILD="${BUILD:-0001}"
-PKGVER="$VERSION-$BUILD"
+# Paketversion in DSM immer mit Build-Nummer; der Dateiname nur bei Testpaketen
+# (BUILD gesetzt), Veröffentlichungen heißen dsvideorevival-<version>-<arch>.spk.
+PKGVER="$VERSION-${BUILD:-0001}"
+FILEVER="$VERSION${BUILD:+-$BUILD}"
 PORT=5180
 SRC=packaging/synology
 STAGE=build/spk
-OUT="dist/dsvideorevival-$PKGVER.spk"
+OUT="dist/dsvideorevival-$FILEVER.spk"
 
 # Immer neu bauen, damit nie veraltete Binaries ins Paket geraten.
 rm -rf build/bin && VERSION="$VERSION" scripts/build.sh
@@ -64,5 +66,5 @@ if [ "${ALL:-0}" = 1 ]; then
   build_spk "$OUT" $ARCHS
 fi
 for a in $ARCHS; do
-  build_spk "dist/dsvideorevival-$PKGVER-$a.spk" "$a"
+  build_spk "dist/dsvideorevival-$FILEVER-$a.spk" "$a"
 done

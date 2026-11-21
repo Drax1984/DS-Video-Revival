@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -607,15 +608,27 @@ func TestWebClient(t *testing.T) {
 		}
 		resp.Body.Close()
 	}
-	for _, f := range []string{"/web/", "/web/index.html", "/web/app.js", "/web/style.css", "/web/hls.light.min.js", "/web/logo.webp"} {
+	for _, f := range []string{"/web/", "/web/index.html", "/web/main.dsvr.bundle.js", "/web/main.dsvr.bundle.js?deferred=true&ts=1", "/web/app.js", "/web/style.css", "/web/hls.light.min.js", "/web/logo.webp"} {
 		resp, err := http.Get(e.ts.URL + f)
 		if err != nil || resp.StatusCode != 200 {
 			t.Fatalf("%s: %v %v", f, err, resp)
 		}
 		b, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		if f == "/web/" && !strings.Contains(string(b), `src="app.js"`) {
-			t.Fatalf("index: %s", b)
+		// Die App „Jellyfin“ für Android gilt als verbunden, sobald die Seite ein
+		// Skript lädt, dessen Pfad auf ihr Muster für das Hauptskript der
+		// Jellyfin-Weboberfläche passt (Constants.MAIN_BUNDLE_PATH_REGEX) –
+		// sonst bricht sie nach 10 s ab.
+		if f == "/web/" {
+			m := regexp.MustCompile(`<script src="([^"]+)"`).FindAllStringSubmatch(string(b), -1)
+			bundle := regexp.MustCompile(`.*/main\.[^/\s]+\.bundle\.js$`)
+			ok := false
+			for _, x := range m {
+				ok = ok || bundle.MatchString("/web/"+x[1])
+			}
+			if !ok {
+				t.Fatalf("index ohne main.*.bundle.js: %s", b)
+			}
 		}
 	}
 	srv := httptest.NewServer(e.s)
@@ -628,4 +641,44 @@ func TestWebClient(t *testing.T) {
 	if !isApple("Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15") || isApple("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130") {
 		t.Fatal("isApple")
 	}
+}
+
+// TestExoPlayerProfile: Der Player der App „Jellyfin“ für Android (ExoPlayer)
+// schickt sein Geräteprofil (Aufbau wie DeviceProfileBuilder der App) und
+// spielt MKV mit HEVC und DTS direkt aus der Datei – wie die DS-video-Apps.
+func TestExoPlayerProfile(t *testing.T) {
+	e := newEnv(t)
+	tok := e.login("anna")
+	b := items(e.json("GET", "/Items?SearchTerm=film%20b&IncludeItemTypes=Movie&Recursive=true", tok, nil))
+	if len(b) != 1 {
+		t.Fatalf("Film B: %v", names(b))
+	}
+	vc := "mpeg1video,mpeg2video,h263,mpeg4,h264,hevc,av1,vp8,vp9"
+	ac := "pcm_s16le,mp1,mp2,mp3,aac,vorbis,opus,flac,alac,ac3,eac3,dts,mlp,truehd"
+	prof := map[string]any{"DeviceProfile": map[string]any{
+		"Name": "ExoPlayer", "MaxStreamingBitrate": 120000000, "MaxStaticBitrate": 100000000,
+		"DirectPlayProfiles": []any{
+			map[string]any{"Type": "Video", "Container": "mp4", "VideoCodec": "h264,hevc,av1,vp9", "AudioCodec": "mp3,aac,alac,ac3,opus"},
+			map[string]any{"Type": "Video", "Container": "mkv", "VideoCodec": vc, "AudioCodec": ac},
+		},
+		"CodecProfiles": []any{map[string]any{"Type": "Video", "Container": "mkv", "Codec": "hevc", "Conditions": []any{
+			map[string]any{"Condition": "EqualsAny", "Property": "VideoProfile", "Value": "Main|Main 10|Main 10 HDR 10", "IsRequired": false}}}},
+		"TranscodingProfiles": []any{map[string]any{"Type": "Video", "Container": "ts", "VideoCodec": "h264", "AudioCodec": "aac,ac3,eac3,dts", "Protocol": "hls"}},
+	}, "MaxStreamingBitrate": 120000000, "StartTimeTicks": 0, "AutoOpenLiveStream": true}
+	pi := e.json("POST", "/Items/"+b[0]["Id"].(string)+"/PlaybackInfo", tok, prof)
+	if pi["PlaySessionId"] == nil || pi["PlaySessionId"] == "" {
+		t.Fatalf("PlaySessionId fehlt: %v", pi)
+	}
+	src := pi["MediaSources"].([]any)[0].(map[string]any)
+	if src["SupportsDirectPlay"] != true || src["Protocol"] != "File" {
+		t.Fatalf("Direktwiedergabe erwartet: %v", src)
+	}
+	// So baut die App die Adresse (videosApi.getVideoStreamUrl, static=true)
+	req, _ := http.NewRequest("GET", e.ts.URL+"/Videos/"+b[0]["Id"].(string)+"/stream?static=true&mediaSourceId="+src["Id"].(string)+"&api_key="+tok, nil)
+	req.Header.Set("Range", "bytes=100-199")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != http.StatusPartialContent || resp.ContentLength != 100 {
+		t.Fatalf("Datei mit Range: %v %v", err, resp)
+	}
+	resp.Body.Close()
 }

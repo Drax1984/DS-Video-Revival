@@ -98,7 +98,8 @@ das Paket startet nach dem Update wieder von selbst, die Apps verbinden sich wie
 
 | Version | Datum | |
 |---|---|---|
-| **0.6.6** | 19.11.2026 | Jellyfin-Apps (Schnittstelle und Mediathek für die App „Jellyfin“), Oberfläche Deutsch/Englisch, Port einstellbar mit Neustart |
+| **0.6.7** | 21.11.2026 | App „Jellyfin“: 4K/HEVC auf dem iPhone, Downloads (auch von unterwegs), Android-Anbindung; weniger Last auf der NAS, schnellere Anmeldung |
+| 0.6.6 | 19.11.2026 | Jellyfin-Apps (Schnittstelle und Mediathek für die App „Jellyfin“), Oberfläche Deutsch/Englisch, Port einstellbar mit Neustart |
 | 0.5.42 | 17.11.2026 | Erste Veröffentlichung |
 
 Änderungen: [**CHANGELOG.md**](CHANGELOG.md)
@@ -112,7 +113,8 @@ das Paket startet nach dem Update wieder von selbst, die Apps verbinden sich wie
 | DS video Android (Smartphone) | ✔ Anmeldung, Bibliothek, Wiedergabe, Offline-Download |
 | DS video Apple TV / Fire TV | Rückmeldungen willkommen |
 | Jellyfin-Apps (Infuse, Swiftfin, Jellyfin für Android TV, Findroid, Streamyfin) | neu in 0.6.6 – Rückmeldungen willkommen ([docs/jellyfin.md](docs/jellyfin.md)) |
-| App „Jellyfin“ (iPhone) | ✔ Anmeldung lokal und extern, Mediathek und Wiedergabe |
+| App „Jellyfin“ (iPhone) | ✔ Anmeldung lokal und extern, Mediathek, Wiedergabe, Downloads |
+| App „Jellyfin“ (Android) | ✔ Anmeldung, Mediathek, Wiedergabe |
 | Webbrowser (Weboberfläche) | ✔ Desktop und Smartphone |
 
 Details: [docs/compatibility.md](docs/compatibility.md)

@@ -199,6 +199,8 @@ func NormProfile(p string) string {
 		return "medium"
 	case "low":
 		return "low"
+	case "apple":
+		return "apple"
 	}
 	return "high"
 }
@@ -217,6 +219,33 @@ func limitsFor(profile string) offlineLimits {
 		return offlineLimits{480, 1_200_000, "128k"}
 	}
 	return offlineLimits{1080, 8_000_000, "192k"}
+}
+
+// Stufe „apple“ (Herunterladen in der App „Jellyfin“ auf dem iPhone): Video in
+// Originalqualität übernehmen, wo der Apple-Player es kann – H.264 (8 Bit) und
+// HEVC (auch 10 Bit/HDR, als „hvc1“) in jeder Auflösung; sonst H.264 1080p.
+// Ton bleibt, wenn MP4 und der Apple-Player ihn können (AAC, AC-3, E-AC-3,
+// ALAC, MP3), sonst AAC.
+func copyVideoApple(s OfflineSource) bool {
+	p, pf := strings.ToLower(s.VideoProfile), strings.ToLower(s.PixFmt)
+	if strings.Contains(p, "4:2:2") || strings.Contains(p, "4:4:4") || strings.Contains(pf, "422") || strings.Contains(pf, "444") {
+		return false
+	}
+	switch s.VideoCodec {
+	case "h264":
+		return !strings.Contains(p, "10") && (pf == "" || pf == "yuv420p" || pf == "yuvj420p")
+	case "hevc":
+		return pf == "" || pf == "yuv420p" || pf == "yuv420p10le" || pf == "yuvj420p"
+	}
+	return false
+}
+
+func copyAudioApple(s OfflineSource) bool {
+	switch s.AudioCodec {
+	case "aac", "ac3", "eac3", "alac", "mp3":
+		return true
+	}
+	return false
 }
 
 // copyVideo: Videospur unverändert übernehmen (H.264 8 Bit 4:2:0 innerhalb der Stufe).
@@ -241,6 +270,9 @@ func copyAudio(s OfflineSource) bool {
 
 // NeedsVideoEncode: ob für diese Stufe ein H.264-Encoder nötig ist.
 func NeedsVideoEncode(s OfflineSource, profile string) bool {
+	if NormProfile(profile) == "apple" {
+		return !copyVideoApple(s)
+	}
 	return !copyVideo(s, limitsFor(NormProfile(profile)))
 }
 
@@ -532,6 +564,10 @@ func (m *OfflineManager) args(t *OfflineTask, out string, hw bool) ([]string, st
 	s := t.Src
 	args := []string{"-hide_banner", "-nostdin", "-loglevel", "error", "-y"}
 	cv := copyVideo(s, l)
+	ca := copyAudio(s)
+	if t.Profile == "apple" {
+		cv, ca = copyVideoApple(s), copyAudioApple(s)
+	}
 	if hw && !cv {
 		args = append(args, "-vaapi_device", "/dev/dri/renderD128")
 	}
@@ -541,21 +577,26 @@ func (m *OfflineManager) args(t *OfflineTask, out string, hw bool) ([]string, st
 	switch {
 	case cv:
 		args = append(args, "-c:v", "copy")
+		if s.VideoCodec == "hevc" {
+			args = append(args, "-tag:v", "hvc1") // Apple spielt HEVC in MP4 nur als „hvc1“
+		}
 		mode = append(mode, "Video kopiert")
 	case hw:
 		args = append(args, "-vf", fmt.Sprintf("format=nv12,hwupload,scale_vaapi=w=-2:h='min(ih,%d)'", l.height),
 			"-c:v", "h264_vaapi", "-b:v", rate, "-maxrate", rate)
+		args = append(args, sdrTags...)
 		mode = append(mode, fmt.Sprintf("Video → H.264 ≤%dp [VAAPI]", l.height))
 	default:
 		enc := m.HLS.softwareH264Args()
 		if enc == nil {
 			return nil, "", ErrOfflineVideo
 		}
-		args = append(args, "-vf", fmt.Sprintf("scale=-2:'min(ih,%d)'", l.height))
+		args = append(args, "-vf", m.HLS.softwareVF(s.Path, strconv.Itoa(l.height)))
 		args = append(args, offlineRate(enc, rate)...)
+		args = append(args, sdrTags...)
 		mode = append(mode, fmt.Sprintf("Video → H.264 ≤%dp (%s)", l.height, enc[1]))
 	}
-	if copyAudio(s) {
+	if ca {
 		args = append(args, "-c:a", "copy")
 		mode = append(mode, "Ton kopiert")
 	} else {

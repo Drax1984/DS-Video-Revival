@@ -53,7 +53,8 @@ h2{font-size:17px;margin:18px 16px 8px}
 .card .s{font-size:12.5px;color:var(--muted)}
 .tools{display:flex;gap:10px;align-items:center;padding:4px 16px 8px}
 .tools select{width:auto}
-.more{display:block;margin:16px auto}
+.more{min-height:48px;display:flex;align-items:center;justify-content:center;margin:8px 0 16px}
+.more[hidden]{display:none}
 .empty{padding:20px 16px;color:var(--muted)}
 
 .hero{position:relative;min-height:200px;background:#000 center/cover no-repeat}
@@ -80,3 +81,7 @@ h2{font-size:17px;margin:18px 16px 8px}
 .player video{flex:1;width:100%;min-height:0;background:#000}
 .pmsg{color:#ddd;text-align:center;margin:8px 12px calc(10px + env(safe-area-inset-bottom));min-height:1.3em;white-space:pre-line;overflow-wrap:anywhere}
 .pdiag{margin:0 10px calc(8px + env(safe-area-inset-bottom));max-height:34vh;overflow:auto;color:#aab;font:11px/1.35 ui-monospace,Menlo,monospace;white-space:pre-wrap;word-break:break-all}
+.dlmsg{flex-basis:100%;margin:2px 0 0;font-size:13.5px}
+.ep .dl{padding:0 8px;margin-left:6px;font-size:15px;line-height:1.6;background:transparent;border:1px solid var(--line);border-radius:6px;vertical-align:1px}
+.ep .dlmsg{margin-top:3px}
+#srvBtn{margin-top:8px}

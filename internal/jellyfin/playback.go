@@ -158,6 +158,27 @@ func listHas(list, v string) bool {
 	return false
 }
 
+// progressiveOnly: Die App will Video nur als ganze Datei umgewandelt haben
+// (TranscodingProfiles nur mit Protocol „http“) – so fragt z.B. die App
+// „Jellyfin“ (iPhone) vor dem Herunterladen. HLS-Adressen sind dafür nutzlos:
+// Sie würde die Liste als Videodatei speichern.
+func (p *deviceProfile) progressiveOnly() bool {
+	if p == nil {
+		return false
+	}
+	video := false
+	for _, t := range p.TranscodingProfiles {
+		if t.Type != "" && !strings.EqualFold(t.Type, "Video") {
+			continue
+		}
+		video = true
+		if t.Protocol == "" || strings.EqualFold(t.Protocol, "hls") {
+			return false
+		}
+	}
+	return video
+}
+
 func (p *deviceProfile) canDirectPlay(cont, vcodec, acodec string) bool {
 	if p == nil {
 		return true
@@ -510,6 +531,7 @@ func (h *Handler) mediaSources(x *req, it library.Item, files []library.File, op
 		prof = opts.Profile
 	}
 	canTranscode := h.S.HLS != nil && h.S.HLS.FFmpeg != ""
+	progressive := opts != nil && prof.progressiveOnly()
 	for _, f := range files {
 		cont := container(f.Path)
 		vcodec, acodec := "", ""
@@ -540,7 +562,7 @@ func (h *Handler) mediaSources(x *req, it library.Item, files []library.File, op
 				direct = false
 				reasons = append(reasons, "ContainerBitrateExceedsLimit")
 			}
-			if !direct && (!canTranscode || !boolOr(opts.EnableTranscoding, true)) {
+			if !direct && !progressive && (!canTranscode || !boolOr(opts.EnableTranscoding, true)) {
 				direct = true // lieber direkt versuchen als gar nicht
 			}
 		}
@@ -572,19 +594,109 @@ func (h *Handler) mediaSources(x *req, it library.Item, files []library.File, op
 		if defAudio >= 0 {
 			src["DefaultAudioStreamIndex"] = defAudio
 		}
-		if opts != nil && !direct {
+		if progressive && !direct {
+			// Herunterladen in der App: fertige Umwandlung der Mediathek (MP4)
+			// als eigene Quelle anbieten; sonst lädt die App die Adresse, die ihr
+			// die Mediathek mitgegeben hat.
+			src["SupportsTranscoding"] = false
+			if off, ok := h.offlineSource(x, it, f); ok {
+				out = append(out, off)
+			}
+		} else if opts != nil && !direct {
 			o := *opts
 			if !prof.videoOK(f.Probe) { // Videospur passt nicht zum Gerät: nicht nur umverpacken
 				no := false
 				o.AllowVideoStreamCopy = &no
 			}
-			src["TranscodingUrl"] = h.transcodingURL(x, it, f, &o, reasons)
+			tu := h.transcodingURL(x, it, f, &o, reasons)
+			src["TranscodingUrl"] = tu
 			src["TranscodingSubProtocol"] = "hls"
 			src["TranscodingContainer"] = "mp4"
+			if strings.Contains(tu, "SegmentContainer=ts") {
+				src["TranscodingContainer"] = "ts"
+			}
 		}
 		out = append(out, src)
 	}
+	if progressive {
+		for _, src := range out {
+			h.downloadViaBase(x, it, src)
+		}
+	}
 	return out
+}
+
+// downloadViaBase: Herunterladen in der App „Jellyfin“ (iPhone) über einen
+// Basis-Pfad, z.B. von unterwegs über DSM (https://nas.example.com/jellyfin).
+// Für Direktwiedergabe baut die App die Adresse selbst ab der Wurzel des
+// Servers („/Videos/{id}/stream.mp4“, new URL(pfad, server)) – der Pfad
+// /jellyfin fällt dabei weg, der Abruf landet bei DSM statt hier und die App
+// speichert dessen Fehlerseite (wenige KB) als Video. Die Adresse einer
+// Umwandlung übernimmt sie dagegen wie geliefert: Die Datei wird daher als
+// „Umwandlung“ (ganze Datei per HTTP) mit vollständigem Pfad angeboten.
+func (h *Handler) downloadViaBase(x *req, it library.Item, src map[string]any) {
+	base := vs.JellyfinBase(x.r)
+	id, _ := src["Id"].(string)
+	if base == "" || id == "" || src["SupportsDirectPlay"] != true {
+		return
+	}
+	v := url.Values{}
+	v.Set("MediaSourceId", id)
+	v.Set("api_key", x.auth.Token)
+	src["SupportsDirectPlay"], src["SupportsDirectStream"], src["SupportsTranscoding"] = false, false, true
+	src["TranscodingUrl"] = base + "/Items/" + makeID(kItem, uint64(it.ID)) + "/Download?" + v.Encode()
+	src["TranscodingSubProtocol"] = "http"
+	src["TranscodingContainer"] = src["Container"]
+}
+
+// dlSessionPrefix kennzeichnet PlaySessionIds von Abfragen zum Herunterladen
+// (Download-Profil der App). Deren „Wiedergabe beendet“ nach dem Laden ist
+// keine Wiedergabe und ändert die Position nicht.
+const dlSessionPrefix = "dsvrdl"
+
+// offlineSourcePrefix: MediaSourceId einer fertigen Umwandlung (Aufgaben-Nr.).
+const offlineSourcePrefix = "dsvroff"
+
+// offlineSource: fertige Umwandlung „apple“ der Datei als MediaSource
+// (Direktwiedergabe, MP4).
+func (h *Handler) offlineSource(x *req, it library.Item, f library.File) (map[string]any, bool) {
+	if h.S.Offline == nil {
+		return nil, false
+	}
+	t, ok := h.offlineTask(x.sess.Account, f.ID, "apple")
+	if !ok || t.State != stream.OfflineDone {
+		return nil, false
+	}
+	t, _, ok = h.doneOffline(x, t.ID)
+	if !ok {
+		return nil, false
+	}
+	streams := []map[string]any{}
+	if pr := t.OutProbe; pr != nil && pr.OK {
+		streams = append(streams, map[string]any{"Type": "Video", "Index": 0, "Codec": pr.VideoCodec, "Width": pr.Width, "Height": pr.Height,
+			"IsDefault": true, "IsExternal": false, "IsTextSubtitleStream": false, "SupportsExternalStream": false, "Profile": pr.VideoProfile})
+		if pr.AudioCodec != "" {
+			streams = append(streams, map[string]any{"Type": "Audio", "Index": 1, "Codec": pr.AudioCodec, "Channels": pr.Channels,
+				"IsDefault": true, "IsExternal": false, "IsTextSubtitleStream": false, "SupportsExternalStream": false})
+		}
+	}
+	name := strings.TrimSuffix(filepath.Base(f.Path), filepath.Ext(f.Path)) + ".mp4"
+	src := map[string]any{
+		"Protocol": "File", "Id": offlineSourcePrefix + strconv.Itoa(t.ID), "Type": "Default", "Container": "mp4", "Size": t.OutSize,
+		"Name": "iPhone (MP4)", "Path": name, "IsRemote": false, "ETag": strconv.FormatInt(t.Finished, 16),
+		"SupportsTranscoding": false, "SupportsDirectStream": true, "SupportsDirectPlay": true, "IsInfiniteStream": false,
+		"RequiresOpening": false, "RequiresClosing": false, "RequiresLooping": false, "SupportsProbing": true, "VideoType": "VideoFile",
+		"MediaStreams": streams, "MediaAttachments": []any{}, "Formats": []string{}, "RequiredHttpHeaders": map[string]string{},
+		"HasSegments": false,
+	}
+	if d := t.Src.Duration; d > 0 {
+		src["RunTimeTicks"] = ticks(d)
+		src["Bitrate"] = int64(float64(t.OutSize*8) / d)
+	}
+	if len(streams) > 1 {
+		src["DefaultAudioStreamIndex"] = 1
+	}
+	return src, true
 }
 
 func (h *Handler) transcodingURL(x *req, it library.Item, f library.File, o *pbOpts, reasons []string) string {
@@ -604,6 +716,9 @@ func (h *Handler) transcodingURL(x *req, it library.Item, f library.File, o *pbO
 				}
 				if t.AudioCodec != "" {
 					ac = t.AudioCodec
+				}
+				if strings.EqualFold(t.Container, "ts") && (t.Protocol == "" || strings.EqualFold(t.Protocol, "hls")) {
+					v.Set("SegmentContainer", "ts") // wie Jellyfin: MPEG-TS-Segmente
 				}
 				break
 			}
@@ -682,6 +797,9 @@ func (h *Handler) playbackInfo(x *req, id string) {
 		o.MaxStreamingBitrate = o.Profile.MaxStreamingBitrate
 	}
 	o.PlaySessionID = randHex(16)
+	if o.Profile.progressiveOnly() {
+		o.PlaySessionID = dlSessionPrefix + randHex(13)
+	}
 	files := h.S.Lib.Files(e.it)
 	if o.MediaSourceID != "" {
 		if k, p, ok := parseID(o.MediaSourceID); ok && k == kFile {
@@ -747,6 +865,12 @@ func (h *Handler) streamFile(x *req, itemID string, download bool) {
 		jsonError(x.w, http.StatusMethodNotAllowed, "GET")
 		return
 	}
+	if ms := strings.ToLower(x.Q("MediaSourceId")); strings.HasPrefix(ms, offlineSourcePrefix) {
+		if id, err := strconv.Atoi(strings.TrimPrefix(ms, offlineSourcePrefix)); err == nil {
+			h.serveOffline(x, id)
+			return
+		}
+	}
 	f, it, ok := h.fileFor(x, itemID, x.Q("MediaSourceId"))
 	if !ok {
 		http.NotFound(x.w, x.r)
@@ -768,7 +892,9 @@ func (h *Handler) streamFile(x *req, itemID string, download bool) {
 	h.S.Conns().Play(key, tok, h.title(it))
 	gone := h.S.Conns().Begin(key, true)
 	defer h.S.Conns().End(key, true)
-	stream.ServeRaw(vs.GuardWriter(x.w, gone), x.r, f.Path)
+	w, done := h.track(x, makeID(kItem, uint64(it.ID)), f.Size)
+	defer done()
+	stream.ServeRaw(vs.GuardWriter(w, gone), x.r, f.Path)
 }
 
 // ---------- HLS (Umwandlung) ----------
@@ -868,10 +994,21 @@ func (h *Handler) hlsStart(x *req, itemID string) (*stream.Job, string, bool) {
 			case mb < 6_000_000:
 				d.MaxHeight = 720
 			}
+			// Videobitrate so wählen, dass Bild und Ton durch die Leitung passen
+			if mb < 20_000_000 {
+				d.MaxRate = max(mb*85/100-200_000, 400_000)
+				d.Reason += fmt.Sprintf(", höchstens %.1f Mbit/s", float64(d.MaxRate)/1e6)
+			}
 		}
 	}
 	if f.Probe != nil && f.Probe.Duration > 0 {
 		d.Duration = f.Probe.Duration
+	}
+	// Die App wünscht MPEG-TS (z.B. die Mediathek der App „Jellyfin“ auf dem
+	// iPhone, wie bei Jellyfin selbst): für H.264; HEVC bleibt fMP4.
+	if strings.EqualFold(x.Q("SegmentContainer"), "ts") && !(d.CopyVideo && d.HEVC) {
+		d.TS = true
+		d.Reason += ", MPEG-TS"
 	}
 	audio, acodec := 0, ""
 	if f.Probe != nil {
@@ -913,21 +1050,68 @@ func (h *Handler) hlsStart(x *req, itemID string) (*stream.Job, string, bool) {
 	}
 	h.S.Conns().Play(x.sess.Key, j.ID, h.title(it))
 	log.Printf("jellyfin: %s für %q (%s): %s", d.Mode, x.sess.Account, x.dev.label(), d.Reason)
-	bw := fileBitrate(f)
-	if bw <= 0 || d.Mode == stream.ModeTranscode {
-		bw = 8_000_000
-	}
-	var sb strings.Builder
-	sb.WriteString("#EXTM3U\n")
-	fmt.Fprintf(&sb, "#EXT-X-STREAM-INF:BANDWIDTH=%d", bw)
-	if f.Probe != nil && f.Probe.Width > 0 && d.CopyVideo {
-		fmt.Fprintf(&sb, ",RESOLUTION=%dx%d", f.Probe.Width, f.Probe.Height)
-	}
-	sb.WriteString("\nhls/" + j.ID + "/index.m3u8\n")
+	master := h.masterPlaylist(j, f, d, acodec)
 	h.mu.Lock()
-	h.sessions[skey] = &playSession{Job: j.ID, Key: x.sess.Key, Created: time.Now(), Sig: sig, Master: sb.String()}
+	h.sessions[skey] = &playSession{Job: j.ID, Key: x.sess.Key, Created: time.Now(), Sig: sig, Master: master}
 	h.mu.Unlock()
-	return j, sb.String(), true
+	return j, master, true
+}
+
+// masterPlaylist: Übersichtsliste wie bei Jellyfin – mit BANDWIDTH, CODECS,
+// RESOLUTION, FRAME-RATE und VIDEO-RANGE. Der Apple-Player auf dem iPhone
+// braucht sie: Lädt er die Segmentliste direkt, fragt er fMP4-Segmente endlos
+// ab; fehlen bei HEVC/HDR CODECS, Auflösung oder VIDEO-RANGE, spielt er nicht
+// (Test mit iOS 18). CODECS stammt aus der tatsächlichen Ausgabe von FFmpeg.
+func (h *Handler) masterPlaylist(j *stream.Job, f library.File, d stream.Decision, acodec string) string {
+	w, ht, fps := 0, 0, 0.0
+	if f.Probe != nil {
+		w, ht, fps = f.Probe.Width, f.Probe.Height, f.Probe.FrameRate
+	}
+	var peak, avg int64
+	if d.CopyVideo {
+		avg = fileBitrate(f)
+		if avg <= 0 {
+			avg = 20_000_000
+		}
+		peak = avg * 3 / 2
+	} else {
+		rate := d.MaxRate
+		if rate <= 0 {
+			rate = 8_000_000
+		}
+		peak, avg = rate+192_000, (rate+192_000)*4/5
+		// Höhe nach der Umwandlung (höchstens MaxHeight bzw. 1080), gerade Breite
+		maxh := d.MaxHeight
+		if maxh <= 0 {
+			maxh = 1080
+		}
+		if ht > maxh && ht > 0 {
+			w, ht = (w*maxh/ht+1)/2*2, maxh
+		}
+	}
+	attrs := []string{fmt.Sprintf("BANDWIDTH=%d", peak), fmt.Sprintf("AVERAGE-BANDWIDTH=%d", avg)}
+	wait := 12 * time.Second
+	if d.CopyVideo {
+		wait = 8 * time.Second
+	}
+	codecs := []string{}
+	if v := j.VideoCodecTag(wait); v != "" {
+		codecs = append(codecs, v)
+		if a := h.S.HLS.AudioCodecTag(acodec, d.CopyAudio, d.Client); a != "" && acodec != "" {
+			codecs = append(codecs, a)
+		}
+	}
+	if len(codecs) > 0 {
+		attrs = append(attrs, `CODECS="`+strings.Join(codecs, ",")+`"`)
+	}
+	if w > 0 && ht > 0 {
+		attrs = append(attrs, fmt.Sprintf("RESOLUTION=%dx%d", w, ht))
+	}
+	if fps > 0 {
+		attrs = append(attrs, fmt.Sprintf("FRAME-RATE=%.3f", fps))
+	}
+	attrs = append(attrs, "VIDEO-RANGE="+h.S.HLS.VideoRange(f.Path, d.CopyVideo))
+	return "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n#EXT-X-STREAM-INF:" + strings.Join(attrs, ",") + "\nhls/" + j.ID + "/index.m3u8\n"
 }
 
 // hlsFile: /videos/{id}/hls/{job}/{datei} – die Job-ID ist das Zugriffstoken.
@@ -985,6 +1169,7 @@ func (h *Handler) stopSessionsOf(key string) {
 }
 
 func (h *Handler) gcSessions() {
+	h.tr.gc()
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for id, ps := range h.sessions {
@@ -1083,7 +1268,7 @@ func (h *Handler) readProgress(x *req, itemID string) progressBody {
 func (h *Handler) report(x *req, itemID, event string) {
 	b := h.readProgress(x, itemID)
 	f, it, ok := h.fileFor(x, b.ItemId, b.MediaSourceId)
-	if ok {
+	if ok && !strings.HasPrefix(b.PlaySessionId, dlSessionPrefix) {
 		if event == "start" {
 			h.S.Conns().Play(x.sess.Key, "jfplay:"+b.PlaySessionId, h.title(it))
 		}

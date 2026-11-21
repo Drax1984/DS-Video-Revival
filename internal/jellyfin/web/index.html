@@ -33,6 +33,8 @@
       <div class="code" id="qcCode"></div>
       <p class="muted" data-t="Wartet auf Bestätigung …"></p>
     </div>
+    <button type="button" id="srvBtn" class="ghost" data-t="Anderen Server wählen" hidden></button>
+    <p class="muted" id="srvHint" hidden></p>
     <p class="err" id="loginErr" role="alert"></p>
   </section>
   <div id="view"></div>
@@ -47,6 +49,10 @@
 </div>
 
 <script src="hls.light.min.js"></script>
-<script src="app.js"></script>
+<!-- Name wie das Hauptskript der Jellyfin-Weboberfläche (main.*.bundle.js):
+     Daran erkennt die App „Jellyfin“ für Android, dass die Seite geladen ist,
+     und lädt ihre Erweiterungen (NativeShell). Sonst bricht sie nach 10 s mit
+     „Es konnte keine Verbindung hergestellt werden“ ab. -->
+<script src="main.dsvr.bundle.js"></script>
 </body>
 </html>

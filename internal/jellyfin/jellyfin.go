@@ -69,6 +69,7 @@ type Handler struct {
 	unknown sync.Map
 
 	access accessLog // Wiedergabe-Abrufe (Fehlersuche)
+	tr     transfers // Übertragungen beim Herunterladen (Fortschritt für die Mediathek)
 }
 
 // New creates the handler; dataDir hält jellyfin.json (Geräte, Favoriten).
@@ -418,7 +419,7 @@ func (h *Handler) webClient(x *req) {
 		b, err = webFS.ReadFile("web/index.html")
 		ctype = "text/html; charset=utf-8"
 		x.w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self' blob:")
-	case "app.js":
+	case "main.dsvr.bundle.js", "app.js": // app.js: ältere, zwischengespeicherte Seiten
 		b, err = webFS.ReadFile("web/app.js")
 		ctype = "text/javascript; charset=utf-8"
 	case "style.css":
