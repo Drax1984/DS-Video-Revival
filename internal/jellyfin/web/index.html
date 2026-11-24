@@ -14,6 +14,14 @@
   <a class="brand" href="#/"><img src="logo.webp" alt="" width="30" height="29"><span>DS Video Revival</span></a>
   <form id="searchForm" class="search" role="search"><input id="q" type="search" autocomplete="off" data-ph="Suchen"></form>
   <button type="button" id="logoutBtn" class="ghost small" data-t="Abmelden"></button>
+  <!-- Nur App „Jellyfin“ für Android: Menü statt „Abmelden“ -->
+  <div class="menu" id="appMenu" role="menu" hidden>
+    <button type="button" role="menuitem" data-act="downloads" data-t="Downloads"></button>
+    <button type="button" role="menuitem" data-act="settings" data-t="App-Einstellungen"></button>
+    <button type="button" role="menuitem" data-act="server" data-t="Anderen Server wählen"></button>
+    <div class="sep"></div>
+    <button type="button" role="menuitem" data-act="logout" data-t="Abmelden"></button>
+  </div>
 </header>
 <nav class="chips" id="chips" hidden></nav>
 

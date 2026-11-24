@@ -40,6 +40,7 @@ type profileCondition struct {
 }
 
 type deviceProfile struct {
+	Name                string
 	MaxStreamingBitrate int64
 	DirectPlayProfiles  []codecProfile
 	TranscodingProfiles []codecProfile
@@ -178,6 +179,37 @@ func (p *deviceProfile) progressiveOnly() bool {
 	}
 	return video
 }
+
+// externalPlayer: Profil der App „Jellyfin“ für Android beim externen Player
+// (VLC, MX Player, mpv): alles direkt, keine Umwandlung.
+func (p *deviceProfile) externalPlayer() bool {
+	if p == nil || len(p.TranscodingProfiles) > 0 {
+		return false
+	}
+	if strings.Contains(p.Name, "External Player") {
+		return true
+	}
+	for _, d := range p.DirectPlayProfiles {
+		if strings.EqualFold(d.Type, "Video") && d.Container == "" && d.VideoCodec == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// externalTooBig: Datei, die ein externer Player auf dem Handy nicht sicher
+// flüssig entschlüsselt (über 1080p oder HEVC mit 10 Bit/HDR). Die App
+// „DS video“ lässt solche Filme vom Server umwandeln; VLC zeigt sonst ein
+// stehendes Bild mit laufendem Ton.
+func externalTooBig(p *library.Probe) bool {
+	return p != nil && p.OK && (p.Height > 1080 || (p.VideoCodec == "hevc" && bitDepth(p) > 8))
+}
+
+// vlcProfile: Umwandlung für den externen Player – H.264 (höchstens 1080p,
+// SDR) in fMP4-Segmenten wie für die App „DS video“, Ton unverändert (VLC &
+// Co. können AC-3, E-AC-3, DTS …).
+var vlcProfile = &deviceProfile{Name: "External Player (umgewandelt)", TranscodingProfiles: []codecProfile{{
+	Type: "Video", Container: "mp4", VideoCodec: "h264", AudioCodec: "aac,mp3,mp2,ac3,eac3,dts,truehd,flac,opus,vorbis", Protocol: "hls"}}}
 
 func (p *deviceProfile) canDirectPlay(cont, vcodec, acodec string) bool {
 	if p == nil {
@@ -822,6 +854,23 @@ func (h *Handler) playbackInfo(x *req, id string) {
 		writeJSON(x.w, map[string]any{"MediaSources": []any{}, "PlaySessionId": o.PlaySessionID, "ErrorCode": "NoCompatibleStream"})
 		return
 	}
+	h.grants.add(o.PlaySessionID, x.auth.Token, makeID(kItem, uint64(e.it.ID)))
+	if o.Profile.externalPlayer() && h.S.HLS != nil && h.S.HLS.FFmpeg != "" {
+		// Externer Player: Die App gibt ihm immer die Originaldatei
+		// (/Videos/{id}/stream?static=true). Für 4K/HEVC 10 Bit leitet der Server
+		// diesen Abruf auf eine Umwandlung um (wie bei der App „DS video“).
+		for _, f := range files {
+			if !externalTooBig(f.Probe) {
+				continue
+			}
+			v := *o
+			v.Profile, v.MaxStreamingBitrate = vlcProfile, 0
+			no := false
+			v.AllowVideoStreamCopy = &no
+			h.grants.redirect(o.PlaySessionID, makeID(kFile, uint64(f.ID)), h.transcodingURL(x, e.it, f, &v, []string{"VideoResolutionNotSupported"}))
+			log.Printf("jellyfin: externer Player für %q (%s): %s %dp → Umwandlung H.264 (höchstens 1080p)", x.sess.Account, x.dev.label(), f.Probe.VideoCodec, f.Probe.Height)
+		}
+	}
 	writeJSON(x.w, map[string]any{"MediaSources": srcs, "PlaySessionId": o.PlaySessionID})
 }
 
@@ -870,6 +919,10 @@ func (h *Handler) streamFile(x *req, itemID string, download bool) {
 			h.serveOffline(x, id)
 			return
 		}
+	}
+	if tu, ok := h.grants.target(x.Q("PlaySessionId"), x.Q("MediaSourceId")); ok && !download {
+		http.Redirect(x.w, x.r, vs.JellyfinBase(x.r)+tu, http.StatusFound) // externer Player → Umwandlung
+		return
 	}
 	f, it, ok := h.fileFor(x, itemID, x.Q("MediaSourceId"))
 	if !ok {
@@ -1170,6 +1223,7 @@ func (h *Handler) stopSessionsOf(key string) {
 
 func (h *Handler) gcSessions() {
 	h.tr.gc()
+	h.grants.gc()
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for id, ps := range h.sessions {

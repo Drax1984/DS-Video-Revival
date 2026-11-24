@@ -102,6 +102,18 @@ const ctxViaDSM ctxKey = 1
 // ViaDSM: Anfrage kam über DSMs Webserver (Weiterleitung unter DSMPrefix).
 func ViaDSM(r *http.Request) bool { v, _ := r.Context().Value(ctxViaDSM).(bool); return v }
 
+// viaDSMWeb: Aufruf der Weboberfläche über DSMs Webserver (…/dsvr/ unter der
+// DSM-Adresse, Kennzeichen X-DSVR-Via aus der nginx-Einbindung). Gilt nur für
+// Verbindungen von DSMs nginx auf demselben Rechner.
+func viaDSMWeb(r *http.Request) bool {
+	if r.Header.Get("X-DSVR-Via") != "dsm" {
+		return false
+	}
+	h, _, err := net.SplitHostPort(r.RemoteAddr)
+	ip := net.ParseIP(h)
+	return err == nil && ip != nil && ip.IsLoopback()
+}
+
 // HLSPrefix: absoluter Pfad der HLS-Dateien eines Jobs, passend zum Zugangsweg.
 func HLSPrefix(r *http.Request, id string) string {
 	if ViaDSM(r) {
@@ -138,6 +150,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case strings.HasPrefix(p, "/dsvr/") || p == "/dsvr":
 		if s.AdminHandler != nil {
+			if viaDSMWeb(r) {
+				r = r.WithContext(context.WithValue(r.Context(), ctxViaDSM, true))
+			}
 			s.AdminHandler.ServeHTTP(w, r)
 			return
 		}

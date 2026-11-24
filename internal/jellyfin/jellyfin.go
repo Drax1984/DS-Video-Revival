@@ -68,8 +68,9 @@ type Handler struct {
 	// Unbekannte Aufrufe (für spätere Erweiterungen) – je Pfadmuster einmal protokolliert.
 	unknown sync.Map
 
-	access accessLog // Wiedergabe-Abrufe (Fehlersuche)
-	tr     transfers // Übertragungen beim Herunterladen (Fortschritt für die Mediathek)
+	access accessLog    // Wiedergabe-Abrufe (Fehlersuche)
+	tr     transfers    // Übertragungen beim Herunterladen (Fortschritt für die Mediathek)
+	grants streamGrants // Streams für externe Player (ohne Anmeldedaten)
 }
 
 // New creates the handler; dataDir hält jellyfin.json (Geräte, Favoriten).
@@ -344,6 +345,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	x.auth = parseAuth(r, q)
 	if h.public(x) {
 		return
+	}
+	if x.auth.Token == "" {
+		x.auth.Token = h.streamToken(x)
 	}
 	dev, ok := h.store.lookup(x.auth.Token, upstream.ClientIP(r))
 	if !ok {

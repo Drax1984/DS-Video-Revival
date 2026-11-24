@@ -35,7 +35,7 @@ build_spk() {
     rm -rf "$t"
   fi
   mkdir -p "$STAGE/payload/ui"
-  cp "$SRC/ui/config" "$STAGE/payload/ui/config"
+  cp "$SRC/ui/config" "$SRC/ui/index.html" "$SRC/ui/open.js" "$STAGE/payload/ui/"
   go run ./tools/genicons "$STAGE/gen"
   cp -R "$STAGE/gen/ui/images" "$STAGE/payload/ui/"
   cp LICENSE NOTICE.md "$STAGE/payload/"

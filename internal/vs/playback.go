@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -109,6 +110,12 @@ func streamOpen(c *Ctx) {
 	case "hls":
 		// Die App fordert „hls“ (Umwandlung) bei HEVC/>1080p oder Qualitätsprofilen an.
 		d = transcodeFor(f.Probe, op.Profile, caps)
+		if why := iPhoneHEVC(c, op, f); why != "" {
+			// HEVC (auch 4K/HDR) spielt das iPhone selbst – unverändert übernehmen,
+			// nur der Ton wird bei Bedarf umgewandelt. So liefert es auch die
+			// Jellyfin-Schnittstelle.
+			d = stream.Decision{Mode: stream.ModeRemux, CopyVideo: true, HEVC: true, Reason: "HEVC unverändert, " + why}
+		}
 	default: // hls_remux / webm_remux: echtes HLS liefern, Video wenn möglich kopieren
 		if d.Mode == stream.ModeDirect {
 			d = stream.Decision{Mode: stream.ModeRemux, CopyVideo: true, CopyAudio: true,
@@ -119,6 +126,11 @@ func streamOpen(c *Ctx) {
 		}
 	}
 	d.Client = caps.Name
+	d.Classic = true // DS-video-Apps: Umwandlung wie bis 0.6.6
+	if d.Mode == stream.ModeTranscode && f.Probe != nil && f.Probe.Height > 1440 {
+		d.Fast4K = true // 4K: schnellere Umwandlung (siehe stream.Decision.Fast4K)
+		d.Reason += ", 4K schnell"
+	}
 	if d.Mode != stream.ModeDirect {
 		// Ton der gewählten Spur: unverändert übernehmen, wo HLS es erlaubt
 		// (App-Wunsch „ac3_copy“ eingeschlossen), sonst umwandeln.
@@ -168,6 +180,16 @@ func streamOpen(c *Ctx) {
 			webapi.Fail(c.W, webapi.ErrVSNoStreamFormat)
 			return
 		}
+		// Ein Gerät spielt eine Sache: Umwandlungen einer vorigen Wiedergabe dieser
+		// Sitzung (ohne „close“, z.B. App beendet) teilen sich sonst die CPU mit
+		// der neuen – bei 4K lädt dann keine von beiden.
+		for _, old := range c.S.Conns().JobsOf(c.Sess.Key) {
+			if _, ok := c.S.HLS.Get(old); ok {
+				log.Printf("streaming: vorige Umwandlung %s dieser Sitzung beendet", old[:min(8, len(old))])
+				c.S.HLS.Stop(old)
+				c.S.Conns().Forget(old)
+			}
+		}
 		resume := 0.0
 		if f.Probe != nil && f.Probe.Duration > 0 {
 			d.Duration = f.Probe.Duration // durchsuchbare Liste: Fortsetzen/Vorspulen
@@ -211,6 +233,32 @@ func truncateUA(s string) string {
 	return s
 }
 
+var reIOSVersion = regexp.MustCompile(`(?i)iOS[_ ](\d+)`)
+
+// iPhoneHEVC: Soll DS video auf iPhone/iPad (ab iOS 11, HEVC) die HEVC-Datei
+// unverändert bekommen? Ja in Originalqualität (ohne Qualitätsprofil). Liefert
+// den Grund fürs Protokoll ("" = umwandeln).
+func iPhoneHEVC(c *Ctx, op openParams, f library.File) string {
+	if f.Probe == nil || f.Probe.VideoCodec != "hevc" {
+		return ""
+	}
+	ua := c.Req.HTTP.UserAgent()
+	if !strings.EqualFold(op.Device, "ios") && !strings.Contains(ua, "iPhone") && !strings.Contains(ua, "iPad") {
+		return ""
+	}
+	if m := reIOSVersion.FindStringSubmatch(ua); m != nil {
+		if v, _ := strconv.Atoi(m[1]); v < 11 {
+			return ""
+		}
+	}
+	if op.Profile == "" {
+		return "iPhone spielt es selbst"
+	}
+	// Mit Qualitätsprofil (unterwegs) umwandeln: 4K unverändert bräuchte
+	// 20–40 Mbit/s, das trägt die Mobilfunkverbindung meist nicht.
+	return ""
+}
+
 // transcodeFor: H.264-Umwandlung; Profile der App (z.B. hd_medium, sd_low)
 // begrenzen die Auflösung.
 func transcodeFor(p *library.Probe, profile string, caps stream.Caps) stream.Decision {
@@ -243,6 +291,23 @@ func streamStream(c *Ctx) {
 	}
 	if st.HLSJob != "" && c.S.HLS != nil {
 		if j, ok := c.S.HLS.Get(st.HLSJob); ok {
+			if st.Format == "hls" && j.Decision.CopyVideo && j.Decision.HEVC {
+				// HEVC unverändert fürs iPhone: Übersichtsliste davor (siehe Master)
+				in := stream.MasterInfo{Variant: HLSPrefix(c.Req.HTTP, j.ID) + "index.m3u8"}
+				if f, ok := c.Lib.File(st.FileID); ok && f.Probe != nil {
+					in.Width, in.Height, in.FPS, in.Bitrate = f.Probe.Width, f.Probe.Height, f.Probe.FrameRate, f.Probe.Bitrate
+					for _, t := range f.Probe.AudioTracks {
+						in.AudioCodecs = append(in.AudioCodecs, t.Codec)
+					}
+					if len(in.AudioCodecs) == 0 && f.Probe.AudioCodec != "" {
+						in.AudioCodecs = []string{f.Probe.AudioCodec}
+					}
+				}
+				c.W.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+				c.W.Header().Set("Cache-Control", "no-cache")
+				_, _ = c.W.Write([]byte(c.S.HLS.Master(j, in)))
+				return
+			}
 			c.S.HLS.ServeFile(c.W, c.Req.HTTP, j, "index.m3u8", HLSPrefix(c.Req.HTTP, j.ID))
 			return
 		}

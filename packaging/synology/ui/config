@@ -5,9 +5,7 @@
       "icon": "images/icon_{0}.png",
       "title": "DS Video Revival",
       "desc": "Mediathek und Verwaltung von DS Video Revival",
-      "protocol": "http",
-      "port": "5180",
-      "url": "/dsvr/",
+      "url": "/webman/3rdparty/dsvideorevival/index.html",
       "allUsers": true,
       "grantPrivilege": "all",
       "advanceGrantPrivilege": true

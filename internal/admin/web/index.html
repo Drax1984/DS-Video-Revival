@@ -197,6 +197,7 @@
       <p class="muted">Port, unter dem diese Weboberfläche erreichbar ist (Standard 5180). Die DS-video-Apps sind davon nicht betroffen – sie verbinden sich weiter über die DSM-Adresse.
         Eine Änderung wird nach einem Neustart wirksam; danach unter dem neuen Port neu anmelden. Die DSM-Firewall muss den Port erlauben, falls sie aktiv ist.</p>
       <label>Port der Weboberfläche <input name="web_port" type="number" min="1024" max="65535" class="num"></label>
+      <p class="muted">Außerdem immer unter der DSM-Adresse mit /dsvr/ erreichbar (z.B. https://NAS:5001/dsvr/), auch von unterwegs über QuickConnect, DynDNS oder eine eigene Domain. Das Symbol im DSM-Hauptmenü öffnet diese Adresse.</p>
 
       <div class="row wrap"><button type="submit">Speichern</button> <span id="setMsg" class="muted"></span></div>
 

@@ -420,6 +420,7 @@ window.I18N.add({
   "Port der Jellyfin-Schnittstelle (Standard 8096)": "Port of the Jellyfin interface (default 8096)",
   "Port, unter dem diese Weboberfläche erreichbar ist (Standard 5180). Die DS-video-Apps sind davon nicht betroffen – sie verbinden sich weiter über die DSM-Adresse. Eine Änderung wird nach einem Neustart wirksam; danach unter dem neuen Port neu anmelden. Die DSM-Firewall muss den Port erlauben, falls sie aktiv ist.": "Port on which this web interface is reachable (default 5180). The DS video apps are not affected – they keep connecting via the DSM address. A change takes effect after a restart; then sign in again on the new port. If the DSM firewall is enabled, it must allow the port.",
   "Port der Weboberfläche": "Web interface port",
+  "Außerdem immer unter der DSM-Adresse mit /dsvr/ erreichbar (z.B. https://NAS:5001/dsvr/), auch von unterwegs über QuickConnect, DynDNS oder eine eigene Domain. Das Symbol im DSM-Hauptmenü öffnet diese Adresse.": "Also always reachable at the DSM address with /dsvr/ (e.g. https://NAS:5001/dsvr/), including from outside via QuickConnect, DynDNS or your own domain. The icon in the DSM main menu opens this address.",
   "Neustart": "Restart",
   "Startet DS Video Revival neu, z.B. nach einer Portänderung. Laufende Wiedergaben brechen dabei ab.": "Restarts DS Video Revival, e.g. after changing a port. Running playbacks stop.",
   "DS Video Revival neu starten": "Restart DS Video Revival",

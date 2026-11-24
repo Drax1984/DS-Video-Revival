@@ -95,7 +95,7 @@ func offlineCreate(c *Ctx) {
 	audioID := firstParam(c, "audio_id", "audio_track", "audio")
 	src := stream.OfflineSource{Path: f.Path, Duration: pr.Duration, Height: pr.Height, VideoCodec: pr.VideoCodec,
 		VideoProfile: pr.VideoProfile, PixFmt: pr.PixFmt, VideoBitrate: pr.VideoBitrate,
-		AudioCodec: pr.AudioCodec}
+		AudioCodec: pr.AudioCodec, Origin: "dsvideo"}
 	if n, err := strconv.Atoi(audioID); err == nil && n >= 0 {
 		src.AudioIndex = n
 	}
@@ -180,14 +180,43 @@ func offlineTaskObject(c *Ctx, t stream.OfflineTask) map[string]any {
 	}
 }
 
+// dsTasks: nur Aufgaben der App „DS video“. Die Mediathek der App „Jellyfin“
+// legt für Downloads eigene Aufgaben an (MP4 fürs iPhone, ohne Tonspur-Angabe);
+// stehen sie in der Liste, stürzt DS video fürs iPhone nach der Anmeldung ab.
+func dsTasks(c *Ctx) []stream.OfflineTask {
+	var out []stream.OfflineTask
+	for _, t := range c.S.Offline.List(c.Sess.Account) {
+		if dsTask(t) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func dsTask(t stream.OfflineTask) bool {
+	switch {
+	case t.Src.Origin == "jellyfin" || t.Profile == "apple":
+		return false
+	case t.Src.Origin == "dsvideo":
+		return true
+	}
+	// Ältere Aufgaben ohne Herkunft: die Mediathek legte sie ohne Tonspur-Angabe
+	// an, DS video gibt die Tonspur mit.
+	return t.AudioID != ""
+}
+
 func offlineList(c *Ctx) {
 	if c.S.LogCalls {
 		log.Printf("offline: %s list (Konto %q) %s", c.Req.API, c.Sess.Account, paramDump(c))
 	}
 	tasks := []map[string]any{}
 	if c.S.Offline != nil && !c.Blocked {
-		for _, t := range c.S.Offline.List(c.Sess.Account) {
+		own := dsTasks(c)
+		for _, t := range own {
 			tasks = append(tasks, offlineTaskObject(c, t))
+		}
+		if hidden := len(c.S.Offline.List(c.Sess.Account)) - len(own); hidden > 0 || c.S.LogCalls {
+			log.Printf("offline: Liste für %q: %d Aufgabe(n), %d der Jellyfin-Mediathek ausgeblendet", c.Sess.Account, len(own), hidden)
 		}
 	}
 	webapi.OK(c.W, map[string]any{"task": tasks})
@@ -212,7 +241,7 @@ func offlineAll(name string, op func(m *stream.OfflineManager, owner string, id 
 	return func(c *Ctx) {
 		log.Printf("offline: %s %s (Konto %q)", c.Req.API, name, c.Sess.Account)
 		if c.S.Offline != nil {
-			for _, t := range c.S.Offline.List(c.Sess.Account) {
+			for _, t := range dsTasks(c) {
 				op(c.S.Offline, c.Sess.Account, t.ID)
 			}
 		}

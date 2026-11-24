@@ -102,6 +102,7 @@ type Conns struct {
 	m      map[string]*Conn
 	holder map[string]string // Konto (klein) → Verbindung mit dem Platz
 	jobs   map[string]string // HLS-Job bzw. Wiedergabe-Token → Verbindung
+	orphan []string          // Jobs ersetzter Verbindungen (zum Beenden, TakeOrphans)
 	bans   map[string]Ban
 	// Alive: besteht die Sitzung noch (nicht abgemeldet/abgelaufen)?
 	Alive func(key string) bool
@@ -133,6 +134,7 @@ func (r *Conns) Touch(key, account string, single bool, ci ConnInfo) bool {
 	r.gcLocked(now)
 	c := r.m[key]
 	if c == nil {
+		r.replaceLocked(account, ci)
 		c = &Conn{Key: key, Started: now, gone: &atomic.Bool{}}
 		r.m[key] = c
 	}
@@ -150,6 +152,63 @@ func (r *Conns) Touch(key, account string, single bool, ci ConnInfo) bool {
 		return true
 	}
 	return r.slotLocked(c, now)
+}
+
+// replaceLocked: Neue Anmeldung einer App auf demselben Gerät (Konto, Gerät,
+// Adresse) – z.B. nach einem Neustart der App: Ältere Einträge dieses Geräts
+// ohne laufende Anfrage, Wiedergabe oder Download ersetzt sie, statt dass das
+// Gerät mehrfach in der Liste steht (und für „Nur eine Verbindung“ sich selbst
+// den Platz wegnimmt). Ist die alte Sitzung doch noch in Gebrauch, erscheint
+// sie mit ihrer nächsten Anfrage wieder.
+func (r *Conns) replaceLocked(account string, ci ConnInfo) {
+	if ci.Kind != "app" || ci.Device == "" || ci.IP == "" {
+		return
+	}
+	for k, o := range r.m {
+		if o.Kind != ci.Kind || o.Device != ci.Device || o.IP != ci.IP || !strings.EqualFold(o.Account, account) || o.open > 0 || o.streams > 0 {
+			continue
+		}
+		if a := strings.ToLower(o.Account); r.holder[a] == k {
+			delete(r.holder, a)
+		}
+		for j, ck := range r.jobs {
+			if ck == k {
+				delete(r.jobs, j)
+				r.orphan = append(r.orphan, j)
+			}
+		}
+		delete(r.m, k)
+	}
+}
+
+// TakeOrphans: Jobs ersetzter Verbindungen – deren Umwandlung läuft sonst
+// bis zur Ruhezeit weiter und bremst die neue Wiedergabe.
+func (r *Conns) TakeOrphans() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := r.orphan
+	r.orphan = nil
+	return out
+}
+
+// JobsOf: Jobs bzw. Token einer Verbindung.
+func (r *Conns) JobsOf(key string) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []string
+	for j, k := range r.jobs {
+		if k == key {
+			out = append(out, j)
+		}
+	}
+	return out
+}
+
+// Forget: Job bzw. Token beendet.
+func (r *Conns) Forget(job string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.jobs, job)
 }
 
 // bannedLocked: Gerät gesperrt? Gibt dann auch den Platz frei.
@@ -525,7 +584,15 @@ func (s *Server) SingleSession(sess auth.Session) bool {
 // Ergebnis: true = zweite Verbindung eines eingeschränkten Kontos.
 func (s *Server) TouchConn(sess auth.Session, r *http.Request, kind string) bool {
 	dev, sure := DeviceLabel(r.UserAgent())
-	return s.Conns().Touch(sess.Key, sess.Account, s.SingleSession(sess), ConnInfo{Kind: kind, Device: dev, Sure: sure, IP: clientAddr(r)})
+	blocked := s.Conns().Touch(sess.Key, sess.Account, s.SingleSession(sess), ConnInfo{Kind: kind, Device: dev, Sure: sure, IP: clientAddr(r)})
+	if s.HLS != nil {
+		// Neu angemeldetes Gerät (z.B. App neu gestartet): Umwandlungen der
+		// ersetzten Sitzung beenden, statt sie bis zur Ruhezeit mitlaufen zu lassen.
+		for _, j := range s.conns.TakeOrphans() {
+			s.HLS.Stop(j)
+		}
+	}
+	return blocked
 }
 
 // ConnBlocked: Sitzung ist die zweite Verbindung eines eingeschränkten Kontos.

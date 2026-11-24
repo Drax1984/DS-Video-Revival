@@ -241,3 +241,37 @@ func TestConnBanAndIdle(t *testing.T) {
 		t.Fatal("nach Aufheben weiter gesperrt")
 	}
 }
+
+// TestConnReplacedOnRelogin: Meldet sich die App auf demselben Gerät neu an
+// (z.B. nach einem Neustart), ersetzt die neue Sitzung die alte – das Gerät
+// steht nur einmal in der Liste und nimmt sich nicht selbst den Platz weg.
+func TestConnReplacedOnRelogin(t *testing.T) {
+	r := NewConns()
+	phone := ConnInfo{Kind: "app", Device: "iOS · iPhone", Sure: true, IP: "192.0.2.7"}
+	other := ConnInfo{Kind: "app", Device: "Android · Pixel 7", Sure: true, IP: "192.0.2.8"}
+	r.Touch("s1", "admin", true, phone)
+	r.Play("s1", "job-alt", "Film")
+	r.Touch("x", "admin", false, other)
+	if r.Touch("s2", "admin", true, phone) {
+		t.Fatal("Neuanmeldung desselben Geräts gesperrt")
+	}
+	if o := r.TakeOrphans(); len(o) != 1 || o[0] != "job-alt" || len(r.TakeOrphans()) != 0 {
+		t.Fatalf("Umwandlung der ersetzten Sitzung: %v", o)
+	}
+	r.Touch("s3", "admin", true, phone)
+	n := 0
+	for _, v := range r.List() {
+		if v.Device == phone.Device {
+			n++
+		}
+	}
+	if n != 1 || len(r.List()) != 2 {
+		t.Fatalf("Einträge: %+v", r.List())
+	}
+	// laufende Wiedergabe bleibt stehen
+	r.Begin("s3", true)
+	r.Touch("s4", "admin", false, phone)
+	if len(r.List()) != 3 {
+		t.Fatalf("Sitzung mit Wiedergabe ersetzt: %+v", r.List())
+	}
+}

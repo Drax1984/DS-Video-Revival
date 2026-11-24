@@ -815,6 +815,12 @@ func (h *Handler) itemFields(x *req, e entry, d map[string]any, o dtoOpts) {
 			d["RunTimeTicks"] = ticks(dur)
 		}
 		d["Container"] = container(f.Path)
+		if o.has("Path") {
+			// Nur der Dateiname, keine Ordner der NAS. Die App „Jellyfin“ für
+			// Android benennt damit die heruntergeladene Datei und bricht ohne
+			// „Path“ das Herunterladen ab („Missing item path“).
+			d["Path"] = filepath.Base(f.Path)
+		}
 		if f.Probe != nil && f.Probe.OK {
 			if f.Probe.Width > 0 {
 				d["Width"], d["Height"] = f.Probe.Width, f.Probe.Height

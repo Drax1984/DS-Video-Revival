@@ -36,6 +36,7 @@ Anmeldung über das DSM-Konto.
 - Titel umbenennen und löschen, Gruppen, eigene Administratoren
 - Oberfläche auf **Deutsch oder Englisch** (automatisch nach Browser/System oder fest gewählt)
 - Port der Weboberfläche einstellbar, **Neustart** per Knopf
+- Auch unter der DSM-Adresse erreichbar (`https://NAS:5001/dsvr/`), damit **von unterwegs über QuickConnect**, DynDNS oder eigene Domain
 
 **Jellyfin-Apps** (optional, ab 0.6.6)
 - Eingebaute Jellyfin-Schnittstelle: Infuse, Swiftfin, Jellyfin für Android TV, Findroid oder Streamyfin nutzen dieselbe Mediathek – mit denselben Benutzerrechten und Wiedergabepositionen
@@ -46,8 +47,9 @@ Anmeldung über das DSM-Konto.
 
 - Synology NAS mit **DSM 7.2 oder neuer**
 - DSM-Updates (Firmware) sind jederzeit wie gewohnt möglich – DS Video Revival muss dafür weder deinstalliert noch neu installiert werden
-- Für MKV/AVI, AC3/DTS-Ton, HEVC usw.: Paket **ffmpeg7** aus der [SynoCommunity](https://synocommunity.com)
-  (Paket-Zentrum → Einstellungen → Paketquellen → `https://packages.synocommunity.com`)
+- Paket **ffmpeg7** aus der [SynoCommunity](https://synocommunity.com) für MKV/AVI, AC3/DTS-Ton, HEVC usw.
+  (Paket-Zentrum → Einstellungen → Paketquellen → `https://packages.synocommunity.com`). Es ist als Abhängigkeit
+  eingetragen: Fehlt es, bietet das Paket-Zentrum es bei der Installation mit an.
 - Internetzugang der NAS für Plakate und Inhalte (optional)
 
 ## Welches Paket für welche Synology?
@@ -98,7 +100,8 @@ das Paket startet nach dem Update wieder von selbst, die Apps verbinden sich wie
 
 | Version | Datum | |
 |---|---|---|
-| **0.6.7** | 21.11.2026 | App „Jellyfin“: 4K/HEVC auf dem iPhone, Downloads (auch von unterwegs), Android-Anbindung; weniger Last auf der NAS, schnellere Anmeldung |
+| **0.6.8** | 24.11.2026 | Weboberfläche von unterwegs (auch QuickConnect), DS video wieder schnell wie in 0.6.6 (4K), Android: Downloads, Menü, externer Player (VLC) |
+| 0.6.7 | 21.11.2026 | App „Jellyfin“: 4K/HEVC auf dem iPhone, Downloads (auch von unterwegs), Android-Anbindung; weniger Last auf der NAS, schnellere Anmeldung |
 | 0.6.6 | 19.11.2026 | Jellyfin-Apps (Schnittstelle und Mediathek für die App „Jellyfin“), Oberfläche Deutsch/Englisch, Port einstellbar mit Neustart |
 | 0.5.42 | 17.11.2026 | Erste Veröffentlichung |
 

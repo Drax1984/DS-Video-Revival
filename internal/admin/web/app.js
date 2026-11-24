@@ -40,13 +40,20 @@
     loggingIn = true; btn.disabled = true; btn.textContent = t("Anmelden …");
     try { await login(ev); } finally { loggingIn = false; btn.disabled = false; btn.textContent = t("Anmelden"); }
   });
+  // An- und Abmelden immer über das Paket (auch unter der DSM-Adresse …/dsvr/,
+  // dort reicht DSM /webapi/_dsvr/ an das Paket weiter): Es meldet normale
+  // Benutzer mit einer DSM-eigenen Sitzung an (DSM lehnt den Namen
+  // „DSVideoRevival“ mit 402 ab), prüft die Anwendungsberechtigung und hält
+  // DSMs Cookie „id“ vom Browser fern (sonst endete beim Abmelden hier auch
+  // die DSM-Sitzung).
+  const AUTH_URL = "/webapi/_dsvr/entry.cgi";
   async function login(ev) {
     const f = new FormData(ev.target);
     const body = new URLSearchParams({ api: "SYNO.API.Auth", version: "6", method: "login", session: "DSVideoRevival", format: "sid", account: f.get("account"), passwd: f.get("passwd") });
     if (f.get("otp_code")) body.set("otp_code", f.get("otp_code"));
     $("#loginErr").textContent = "";
     try {
-      const j = await (await fetch("/webapi/entry.cgi", { method: "POST", body })).json();
+      const j = await (await fetch(AUTH_URL, { method: "POST", body })).json();
       if (!j.success) {
         const code = j.error && j.error.code;
         if (code === 403) { $("#otpRow").hidden = false; $("#otpRow input").focus(); $("#loginErr").textContent = t("Bitte 2FA-Code eingeben."); return; }
@@ -63,7 +70,7 @@
 
   $("#logout").addEventListener("click", async () => {
     const body = new URLSearchParams({ api: "SYNO.API.Auth", version: "6", method: "logout", session: "DSVideoRevival", _sid: sid });
-    try { await fetch("/webapi/entry.cgi", { method: "POST", body }); } catch (e) { /* trotzdem lokal abmelden */ }
+    try { await fetch(AUTH_URL, { method: "POST", body }); } catch (e) { /* trotzdem lokal abmelden */ }
     saveSid(""); try { sessionStorage.removeItem("dsvr_synotoken"); } catch (e) {}
     me = null; showLogin(t("Abgemeldet."));
   });

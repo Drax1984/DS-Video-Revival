@@ -33,8 +33,9 @@ else
     port="${port:-5180}"
 fi
 
-# Port in DSM-Menüeintrag übernehmen.
-if [ -f "$PKG_DEST/ui/config" ]; then
-    sed -i "s/\"port\": \"[0-9]*\"/\"port\": \"$port\"/" "$PKG_DEST/ui/config"
+# Port in den DSM-Menüeintrag übernehmen (Ausweichadresse, falls DSMs
+# Weiterleitung von …/dsvr/ fehlt).
+if [ -f "$PKG_DEST/ui/open.js" ]; then
+    sed -i "s/var port = \"[0-9]*\"/var port = \"$port\"/" "$PKG_DEST/ui/open.js"
 fi
 exit 0

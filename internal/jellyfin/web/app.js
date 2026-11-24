@@ -25,6 +25,7 @@
     "Direktwiedergabe fehlgeschlagen – wird umgewandelt …": "Direct play failed – transcoding …",
     "Dieses Gerät kann HLS nicht abspielen.": "This device cannot play HLS.", "Gesehen": "Watched",
     "Konto oder Passwort falsch": "Wrong account or password", "Server nicht erreichbar": "Server not reachable",
+    "Menü": "Menu", "App-Einstellungen": "App settings",
     "Lade …": "Loading …", "Folgen": "Episodes", "Umgewandelt": "Transcoded", "Zurück": "Back",
     "Wiedergabe fehlgeschlagen – Ton wird umgewandelt …": "Playback failed – converting audio …",
     "Wiedergabe fehlgeschlagen – wird vollständig umgewandelt …": "Playback failed – fully transcoding …",
@@ -33,9 +34,12 @@
     "Datei: {0}": "File: {0}", "Leitung ca. {0} Mbit/s": "Connection approx. {0} Mbit/s", "aufs iPhone": "to the iPhone", "aufs Handy": "to the phone", "fürs iPhone": "for the iPhone", "fürs Handy": "for the phone", "zum Herunterladen": "for download",
     "noch {0}": "{0} left", "gleich fertig": "almost done", "Heruntergeladen": "Downloaded",
     "Auf dem iPhone – unter „Downloads“ abspielbar": "On the iPhone – play it under “Downloads”",
+    "Auf dem Handy – unter „Downloads“ abspielbar": "On the phone – play it under “Downloads”",
     "Übertragung stockt bei {0} % – App im Vordergrund lassen": "Transfer stalled at {0} % – keep the app in the foreground",
     "Wird {0} übertragen … {1} %": "Transferring {0} … {1} %", "Wird heruntergeladen … {0} %": "Downloading … {0} %",
-    "Download nicht gestartet – bitte erneut versuchen.": "Download did not start – please try again.", "Download wird gestartet …": "Starting download …",
+    "Download nicht gestartet – bitte erneut versuchen.": "Download did not start – please try again.",
+    "Download noch nicht gestartet – die App lädt voreingestellt nur im WLAN. Stand: in der Benachrichtigung bzw. unter „Downloads“.": "Download has not started yet – by default the app only downloads over Wi-Fi. Status: in the notification or under “Downloads”.",
+    "Übertragung stockt bei {0} %": "Transfer stalled at {0} %", "Download wird gestartet …": "Starting download …",
     "Wartet auf die Umwandlung …": "Waiting for conversion …", "Wird {0} vorbereitet … {1} %": "Preparing {0} … {1} %",
     "Lädt …": "Loading …",
     "⤓ Herunterladen": "⤓ Download", "Downloads öffnen": "Open downloads", 
@@ -138,7 +142,37 @@
     $("#srvHint").textContent = t("Server wechseln: in der App unten auf „Einstellungen“ tippen und dort den Server wählen oder hinzufügen.");
     $("#srvHint").hidden = false;
   });
-  $("#logoutBtn").addEventListener("click", async () => { try { await api("/Sessions/Logout", { method: "POST" }); } catch (e) { /* lokal trotzdem */ } signedOut(); });
+  async function logout() { try { await api("/Sessions/Logout", { method: "POST" }); } catch (e) { /* lokal trotzdem */ } signedOut(); }
+  // App „Jellyfin“ für Android: Sie hat keine eigene Leiste wie die App fürs
+  // iPhone. Downloads, App-Einstellungen und Serverwahl öffnet bei Jellyfin das
+  // Benutzermenü der Weboberfläche – hier daher „Menü“ statt nur „Abmelden“.
+  const ni = (f) => !!(window.NativeInterface && typeof window.NativeInterface[f] === "function");
+  const appMenu = () => ni("openClientSettings") && ni("openDownloadManager") && ni("openServerSelection");
+  const menuOpen = () => !$("#appMenu").hidden;
+  function menuClose() { $("#appMenu").hidden = true; $("#logoutBtn").removeAttribute("aria-expanded"); }
+  function menuBtnSet() {
+    const m = appMenu();
+    $("#logoutBtn").textContent = m ? t("Menü") : t("Abmelden");
+    if (m) $("#logoutBtn").setAttribute("aria-haspopup", "menu"); else $("#logoutBtn").removeAttribute("aria-haspopup");
+  }
+  $("#logoutBtn").addEventListener("click", (e) => {
+    if (!appMenu()) { logout(); return; }
+    e.stopPropagation();
+    if (menuOpen()) { menuClose(); return; }
+    $("#appMenu").hidden = false; $("#logoutBtn").setAttribute("aria-expanded", "true");
+  });
+  $("#appMenu").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-act]");
+    if (!b) return;
+    menuClose();
+    const a = b.dataset.act;
+    if (a === "downloads") window.NativeInterface.openDownloadManager();
+    else if (a === "settings") window.NativeInterface.openClientSettings();
+    else if (a === "server") window.NativeInterface.openServerSelection();
+    else logout();
+  });
+  document.addEventListener("click", (e) => { if (menuOpen() && !e.target.closest("#appMenu")) menuClose(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && menuOpen()) menuClose(); });
 
   // ---------- Bausteine ----------
   const ticks = (s) => Math.floor(s * 1e7);
@@ -383,17 +417,22 @@
         extra = document.createElement("button"); extra.type = "button"; extra.className = "ghost"; extra.textContent = t("Downloads öffnen");
         extra.addEventListener("click", () => window.NativeShell.openDownloadManager());
       }
-      dlMsg(box, "✓ " + (IOS ? t("Auf dem iPhone – unter „Downloads“ abspielbar") : t("Heruntergeladen")), null, extra);
+      dlMsg(box, "✓ " + (IOS ? t("Auf dem iPhone – unter „Downloads“ abspielbar") : ANDROID_APP() ? t("Auf dem Handy – unter „Downloads“ abspielbar") : t("Heruntergeladen")), null, extra);
       return false;
     }
     if (pend && tr && !tr.Done) {
       const pct = tr.Total > 0 ? Math.min(99, Math.floor((tr.Sent / tr.Total) * 100)) : 0;
-      if (tr.Stalled) dlMsg(box, t("Übertragung stockt bei {0} % – App im Vordergrund lassen", pct), null);
+      if (tr.Stalled) dlMsg(box, IOS ? t("Übertragung stockt bei {0} % – App im Vordergrund lassen", pct) : t("Übertragung stockt bei {0} %", pct), null);
       else dlMsg(box, (DEV() ? t("Wird {0} übertragen … {1} %", DEV(), pct) : t("Wird heruntergeladen … {0} %", pct)), tr.TimeLeft);
       return true;
     }
     if (pend && !tr) {
-      if (Date.now() - pend > 120000) { setDl("dlp:", it.Id, null); dlMsg(box, t("Download nicht gestartet – bitte erneut versuchen."), null); return false; }
+      if (Date.now() - pend > 120000) {
+        setDl("dlp:", it.Id, null);
+        // Android: Die App lädt (voreingestellt) nur im WLAN und wartet sonst.
+        dlMsg(box, ANDROID_APP() ? t("Download noch nicht gestartet – die App lädt voreingestellt nur im WLAN. Stand: in der Benachrichtigung bzw. unter „Downloads“.") : t("Download nicht gestartet – bitte erneut versuchen."), null);
+        return false;
+      }
       if (!nativeDl()) { setDl("dlp:", it.Id, null); box.hidden = true; return false; } // Browser: eigener Download
       dlMsg(box, t("Download wird gestartet …"), null);
       return true;
@@ -504,6 +543,23 @@
   // Web-Player eingestellt, spielt die Mediathek selbst.
   let nativeReady = Promise.resolve(false), followT = 0;
   const appPlayer = () => { try { return !!(window.NativePlayer && window.NativePlayer.isEnabled()); } catch (e) { return false; } };
+  // Externer Player (VLC, MX Player, mpv …), eingestellt in den App-Einstellungen
+  const extPlayer = () => { try { return !!(window.ExternalPlayer && window.ExternalPlayer.isEnabled()); } catch (e) { return false; } };
+  // Die App holt die Wiedergabeinfo selbst und startet den Player mit der
+  // direkten Adresse. Wie es ausging, meldet sie über window.ExtPlayer:
+  // notifyTimeUpdate(ms) bzw. ohne Wert (bis zum Ende), dann notifyEnded();
+  // notifyCanceled() bei Abbruch ohne Fortschritt. Die Seite trägt das ein.
+  function playExternal(item, startTicks) {
+    let pos = startTicks ? startTicks / 1e4 : 0; // ms; null = bis zum Ende gesehen
+    const save = (tk) => api("/Sessions/Playing/Stopped", { method: "POST", body: JSON.stringify({ ItemId: item.Id, PositionTicks: tk }) })
+      .catch(() => {}).then(() => { dirty = true; route(true); });
+    window.ExtPlayer = {
+      notifyTimeUpdate(ms) { pos = ms == null ? null : Number(ms); },
+      notifyEnded() { save(pos == null ? (item.RunTimeTicks || 0) : Math.round(pos * 1e4)); },
+      notifyCanceled() { /* nichts gesehen: Stand bleibt */ },
+    };
+    window.ExternalPlayer.initPlayer(JSON.stringify({ ids: [item.Id], startIndex: 0, startPositionTicks: startTicks || 0 }));
+  }
   async function playNative(item, startTicks) {
     const bps = await bandwidth();
     const br = bps > 0 && bps < 40e6 ? Math.max(Math.round(bps * 0.8), 700000) : 120000000;
@@ -525,6 +581,7 @@
 
   async function play(item, startTicks, level, useJs) {
     level = level || 0;
+    if (!level && !useJs && extPlayer() && await nativeReady && extPlayer()) { playExternal(item, startTicks); return; }
     if (!level && !useJs && appPlayer() && await nativeReady && appPlayer()) { playNative(item, startTicks); return; }
     const my = ++attempt;
     if (!level && !useJs) { playT0 = Date.now(); jsTried = -1; }
@@ -730,6 +787,7 @@
   async function route(keep) {
     const loggedIn = !!auth, seq = ++routeSeq;
     $("#login").hidden = loggedIn; $("#bar").hidden = !loggedIn; $("#chips").hidden = !loggedIn;
+    menuClose(); if (loggedIn) menuBtnSet();
     if (!loggedIn) {
       view.innerHTML = ""; dview.innerHTML = ""; dview.hidden = true; view.hidden = false; listHash = shown = null;
       srvBtnShow(); setTimeout(srvBtnShow, 1500); // Skripte der App kommen teils erst nach dem Laden
@@ -793,7 +851,8 @@
   // Benachrichtigung steuern über playbackManager den Player.
   window.NavigationHelper = {
     goBack() {
-      if (canGoBack()) goBack();
+      if (menuOpen()) menuClose();
+      else if (canGoBack()) goBack();
       else if (window.NativeInterface && typeof window.NativeInterface.exitApp === "function") window.NativeInterface.exitApp();
     },
     playbackManager: {

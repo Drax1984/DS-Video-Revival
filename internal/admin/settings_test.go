@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -57,5 +58,23 @@ func TestSettingsPorts(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &v)
 	if v.WebPort != fp || v.RunningWebPort != 5180 || !v.JellyfinEnabled || v.JellyfinPort != 8096 {
 		t.Fatalf("GET: %+v", v)
+	}
+}
+
+// TestUpdateMenuPort: Ausweichport im DSM-Menüeintrag (ui/open.js) folgt dem
+// Port der Weboberfläche.
+func TestUpdateMenuPort(t *testing.T) {
+	dest := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(dest, "ui"), 0o755)
+	src, err := os.ReadFile("../../packaging/synology/ui/open.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(dest, "ui", "open.js"), src, 0o644)
+	t.Setenv("SYNOPKG_PKGDEST", dest)
+	updateMenuPort(":5280")
+	b, _ := os.ReadFile(filepath.Join(dest, "ui", "open.js"))
+	if !strings.Contains(string(b), `var port = "5280";`) || strings.Count(string(b), "5180") != 0 {
+		t.Fatalf("open.js nicht angepasst:\n%s", b)
 	}
 }

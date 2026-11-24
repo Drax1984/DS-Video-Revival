@@ -34,6 +34,9 @@ type fakeDSM struct {
 	valid    map[string]bool
 	calls    []string
 	lastXFF  string
+	// denySession: Sitzungsnamen, die DSM mit 402 ablehnt (normale Benutzer
+	// bei unbekannten Namen wie „DSVideoRevival“).
+	denySession map[string]bool
 }
 
 func (f *fakeDSM) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -51,6 +54,13 @@ func (f *fakeDSM) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "SYNO.API.Auth":
 		switch method {
 		case "login":
+			f.mu.Lock()
+			deny := f.denySession[r.Form.Get("session")]
+			f.mu.Unlock()
+			if deny {
+				io.WriteString(w, `{"error":{"code":402},"success":false}`)
+				return
+			}
 			if r.Form.Get("account") == "anna" && r.Form.Get("passwd") == "geheim" {
 				f.mu.Lock()
 				f.valid["DSMSID123"] = true
@@ -954,5 +964,70 @@ func TestFolderPreviewVideo(t *testing.T) {
 		if resp.StatusCode != 200 {
 			t.Fatalf("Poster %v: %d", p, resp.StatusCode)
 		}
+	}
+}
+
+// TestAdminViaDSMWeb: Weboberfläche unter der DSM-Adresse (…/dsvr/, nginx-
+// Einbindung setzt X-DSVR-Via). Nur Aufrufe von DSMs nginx (Loopback) gelten
+// als „über DSM“ – dann liegen die Videos der Mediathek unter /webapi/_dsvr/hls/.
+func TestAdminViaDSMWeb(t *testing.T) {
+	var got string
+	s := &Server{AdminHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { got = HLSPrefix(r, "j1") })}
+	for _, c := range []struct{ remote, via, want string }{
+		{"127.0.0.1:40000", "dsm", "/webapi/_dsvr/hls/j1/"},
+		{"[::1]:40000", "dsm", "/webapi/_dsvr/hls/j1/"},
+		{"192.168.1.20:40000", "dsm", "/hls/j1/"}, // direkt aus dem Heimnetz: Kennzeichen zählt nicht
+		{"127.0.0.1:40000", "", "/hls/j1/"},
+	} {
+		r := httptest.NewRequest("POST", "/dsvr/api/play", nil)
+		r.RemoteAddr = c.remote
+		if c.via != "" {
+			r.Header.Set("X-DSVR-Via", c.via)
+		}
+		got = ""
+		s.ServeHTTP(httptest.NewRecorder(), r)
+		if got != c.want {
+			t.Errorf("%s via=%q: %q, erwartet %q", c.remote, c.via, got, c.want)
+		}
+	}
+}
+
+// TestWebLoginViaDSM: Die Weboberfläche meldet sich über den Paketpfad
+// /webapi/_dsvr/entry.cgi an (auch unter der DSM-Adresse …/dsvr/). Lehnt DSM
+// den Sitzungsnamen „DSVideoRevival“ für normale Benutzer mit 402 ab, meldet
+// das Paket mit einer DSM-eigenen Sitzung an; DSMs Cookie „id“ bleibt außen vor.
+func TestWebLoginViaDSM(t *testing.T) {
+	ts, fake, _ := newTestServer(t, "dsm")
+	fake.mu.Lock()
+	fake.denySession = map[string]bool{"DSVideoRevival": true}
+	fake.mu.Unlock()
+	body := url.Values{"api": {"SYNO.API.Auth"}, "version": {"6"}, "method": {"login"}, "session": {"DSVideoRevival"},
+		"format": {"sid"}, "account": {"anna"}, "passwd": {"geheim"}}
+	resp, err := http.PostForm(ts.URL+DSMPrefix+"/entry.cgi", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var m map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&m)
+	d, _ := m["data"].(map[string]any)
+	if ok, _ := m["success"].(bool); !ok || d["sid"] == "" {
+		t.Fatalf("Anmeldung über %s/entry.cgi: %v", DSMPrefix, m)
+	}
+	for _, c := range resp.Cookies() {
+		if c.Name == "id" {
+			t.Fatalf("DSM-Cookie „id“ an den Browser gereicht")
+		}
+	}
+	fake.mu.Lock()
+	n := 0
+	for _, c := range fake.calls {
+		if c == "SYNO.API.Auth.login" {
+			n++
+		}
+	}
+	fake.mu.Unlock()
+	if n < 2 {
+		t.Fatalf("keine Ersatzanmeldung nach 402 (%d Anmeldungen bei DSM)", n)
 	}
 }

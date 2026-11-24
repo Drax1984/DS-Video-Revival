@@ -85,3 +85,7 @@ h2{font-size:17px;margin:18px 16px 8px}
 .ep .dl{padding:0 8px;margin-left:6px;font-size:15px;line-height:1.6;background:transparent;border:1px solid var(--line);border-radius:6px;vertical-align:1px}
 .ep .dlmsg{margin-top:3px}
 #srvBtn{margin-top:8px}
+.menu{position:absolute;right:16px;top:100%;margin-top:6px;min-width:220px;max-width:calc(100vw - 32px);padding:6px;border-radius:10px;background:var(--card);border:1px solid var(--line);box-shadow:0 10px 30px rgba(0,0,0,.55);display:flex;flex-direction:column;z-index:6}
+.menu button{background:transparent;text-align:left;padding:12px;border-radius:6px;font-size:15px}
+.menu button:active,.menu button:hover{background:var(--card2)}
+.menu .sep{height:1px;background:var(--line);margin:4px 6px}

@@ -107,7 +107,7 @@ func (h *Handler) offline(x *req, itemID string) {
 		pr = &library.Probe{}
 	}
 	src := stream.OfflineSource{Path: f.Path, Duration: pr.Duration, Height: pr.Height, VideoCodec: pr.VideoCodec,
-		VideoProfile: pr.VideoProfile, PixFmt: pr.PixFmt, VideoBitrate: pr.VideoBitrate, AudioCodec: pr.AudioCodec}
+		VideoProfile: pr.VideoProfile, PixFmt: pr.PixFmt, VideoBitrate: pr.VideoBitrate, AudioCodec: pr.AudioCodec, Origin: "jellyfin"}
 	for _, t := range pr.AudioTracks {
 		if t.Index == 0 {
 			src.AudioCodec, src.AudioProfile = t.Codec, t.Profile

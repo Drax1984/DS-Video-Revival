@@ -450,11 +450,14 @@ func (h *Handler) play(w http.ResponseWriter, r *http.Request, sess auth.Session
 		return
 	}
 	h.S.Conns().Play(sess.Key, j.ID, h.playTitle(sess, f))
+	// Über die DSM-Adresse (…/dsvr/) kommen nur /webapi/_dsvr/… und /dsvr/…
+	// beim Paket an – die Liste dann unter /webapi/_dsvr/hls/.
+	u := vs.HLSPrefix(r, j.ID) + "index.m3u8"
 	if j.VOD { // ganze Laufzeit in der Liste: Player springt selbst zur Startstelle
-		writeJSON(w, map[string]any{"mode": d.Mode, "reason": d.Reason, "token": j.ID, "url": "/hls/" + j.ID + "/index.m3u8", "offset": 0, "seek": req.Start})
+		writeJSON(w, map[string]any{"mode": d.Mode, "reason": d.Reason, "token": j.ID, "url": u, "offset": 0, "seek": req.Start})
 		return
 	}
-	writeJSON(w, map[string]any{"mode": d.Mode, "reason": d.Reason, "token": j.ID, "url": "/hls/" + j.ID + "/index.m3u8", "offset": req.Start})
+	writeJSON(w, map[string]any{"mode": d.Mode, "reason": d.Reason, "token": j.ID, "url": u, "offset": req.Start})
 }
 
 // playTitle: Anzeigename für die Verbindungsliste.

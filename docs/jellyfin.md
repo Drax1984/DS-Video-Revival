@@ -89,7 +89,11 @@ die Adresse über DSM mit HTTPS oder ein VPN nutzen.
   mitschickt. Fortsetzen und Springen funktionieren.
 - H.264 mit 10 Bit wird immer umgewandelt, weil es die Geräte nicht abspielen können.
 - **App „Jellyfin“ für Android:** Filme spielt der Player der App (ExoPlayer) direkt aus der Datei, auch MKV
-  und 4K. Wer in der App unter Einstellungen den Web-Player wählt, nutzt den Player der Mediathek.
+  und 4K. Wer unter „Menü“ → „App-Einstellungen“ den Web-Player wählt, nutzt den Player der Mediathek; mit
+  „Externer Player“ startet die App z.B. VLC mit der Datei (Position wird beim Beenden übernommen). Filme über
+  1080p oder mit HEVC 10 Bit/HDR wandelt der Server dafür wie für die App „DS video“ in H.264 (höchstens 1080p) um. Das
+  Zahnrad im Player ist die Qualitätswahl der App: Voreingestellt ist „Automatisch“ (ganz unten in der Liste),
+  also Originalqualität, solange die Leitung reicht, sonst wandelt der Server passend um.
 - **Mediathek der App „Jellyfin“:** Startet ein Film nicht, versucht sie es von selbst noch einmal, zuerst mit
   einem eigenen Player (hls.js), dann mit umgewandeltem Ton, zuletzt vollständig umgewandelt.
 - **Untertitel:** Eingebettete Untertitel und SRT/ASS/VTT-Dateien neben dem
@@ -99,7 +103,9 @@ die Adresse über DSM mit HTTPS oder ein VPN nutzen.
 - Herunterladen in der App (z.B. Findroid, Swiftfin) nur mit dem Recht
   „Herunterladen“. In der Mediathek der App „Jellyfin“ gibt es dafür
   „⤓ Herunterladen“. Die Datei landet in den Downloads der App: auf dem iPhone im
-  Reiter „Downloads“, unter Android über „Downloads öffnen“. Auf dem iPhone
+  Reiter „Downloads“, unter Android über „Menü“ → „Downloads“ in der Mediathek
+  (Ansicht der App mit Plakat und Offline-Wiedergabe). Die Android-App lädt voreingestellt
+  nur im WLAN und zeigt den Fortschritt auch als Benachrichtigung. Auf dem iPhone
   bereitet der Server Dateien, die nicht MP4 sind, vorher als MP4 vor (H.264/HEVC
   nur umverpackt). Die Mediathek zeigt Vorbereitung und Übertragung mit Restzeit.
   Was danach in der App liegt, sieht sie nicht (Löschen in der App erfährt sie

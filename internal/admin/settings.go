@@ -218,20 +218,30 @@ func (h *Handler) restart(w http.ResponseWriter, r *http.Request, sess auth.Sess
 	time.AfterFunc(500*time.Millisecond, h.Restart)
 }
 
-// updateMenuPort passt den Port des DSM-Hauptmenü-Eintrags (ui/config) an.
+// updateMenuPort passt den Port im DSM-Hauptmenü-Eintrag an: Ausweichadresse
+// in ui/open.js (der Eintrag öffnet die Weboberfläche über die DSM-Adresse,
+// nur ohne DSMs Weiterleitung direkt über den Port) und – aus Versionen bis
+// 0.6.7 – „port“ in ui/config.
 func updateMenuPort(listen string) {
 	dest := os.Getenv("SYNOPKG_PKGDEST")
 	_, port, ok := strings.Cut(listen, ":")
 	if dest == "" || !ok || port == "" {
 		return
 	}
-	p := filepath.Join(dest, "ui", "config")
-	b, err := os.ReadFile(p)
-	if err != nil {
-		return
-	}
-	out := regexp.MustCompile(`"port": *"[0-9]*"`).ReplaceAll(b, []byte(`"port": "`+port+`"`))
-	if err := os.WriteFile(p, out, 0o644); err != nil {
-		log.Printf("admin: Menüeintrag nicht aktualisiert: %v", err)
+	for name, re := range map[string]*regexp.Regexp{
+		"config":  regexp.MustCompile(`"port": *"[0-9]*"`),
+		"open.js": regexp.MustCompile(`var port = "[0-9]*"`),
+	} {
+		p := filepath.Join(dest, "ui", name)
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		out := re.ReplaceAllFunc(b, func(m []byte) []byte {
+			return regexp.MustCompile(`"[0-9]*"$`).ReplaceAll(m, []byte(`"`+port+`"`))
+		})
+		if err := os.WriteFile(p, out, 0o644); err != nil {
+			log.Printf("admin: Menüeintrag nicht aktualisiert: %v", err)
+		}
 	}
 }

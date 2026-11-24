@@ -127,14 +127,25 @@ func withPreset(enc []string, preset string) []string {
 }
 
 // softwareVF: Filter für die Software-Umwandlung (Größe, ggf. HDR → SDR).
+// Bei 4K-Quellen braucht schon das Dekodieren fast alles, was die CPU einer
+// NAS schafft – jede Farbumrechnung (gemessen +15 % Rechenzeit mit
+// Tonemapping, +35 % nur mit Farbmatrix) kann die Umwandlung dort unter
+// Echtzeit drücken. Darüber daher nur verkleinern (blassere Farben), das
+// Video nur als SDR gekennzeichnet. (Die DS-video-Apps nutzen diese Filter
+// nicht, siehe Decision.Classic.)
 func (m *HLSManager) softwareVF(path, maxh string) string {
 	sc := "scale=-2:'min(ih," + maxh + ")'"
 	if trc := m.srcTransfer(path); isHDR(trc) {
-		if m.canTonemap() {
+		switch {
+		case m.srcHeight(path) > 1440:
+			log.Printf("hls: HDR-Quelle (%s) über 1440p → SDR ohne Farbumrechnung (Software-Umwandlung sonst zu langsam)", trc)
+			return sc
+		case m.canTonemap():
 			log.Printf("hls: HDR-Quelle (%s) → SDR mit Tonemapping", trc)
 			return sc + "," + tonemapChain
+		default:
+			log.Printf("hls: HDR-Quelle (%s), FFmpeg ohne zscale/tonemap – Farben werden blass", trc)
 		}
-		log.Printf("hls: HDR-Quelle (%s), FFmpeg ohne zscale/tonemap – Farben werden blass", trc)
 	}
 	return sc + ":out_color_matrix=bt709"
 }

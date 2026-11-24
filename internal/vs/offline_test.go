@@ -211,3 +211,184 @@ func TestOfflineStopRestart(t *testing.T) {
 		t.Fatalf("nach Neustart: %+v", g)
 	}
 }
+
+// TestOfflineListHidesJellyfin: Aufgaben der Mediathek der App „Jellyfin“
+// (Profil „apple“) erscheinen nicht in der Liste von DS video – die App fürs
+// iPhone stürzt sonst direkt nach der Anmeldung ab.
+func TestOfflineListHidesJellyfin(t *testing.T) {
+	ff, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg fehlt")
+	}
+	ts, _, dir := newTestServer(t, "local")
+	s := ts.Config.Handler.(*Server)
+	src := filepath.Join(dir, "x.mkv")
+	if out, err := exec.Command(ff, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=2",
+		"-c:v", "libx264", "-preset", "ultrafast", "-y", src).CombinedOutput(); err != nil {
+		t.Skipf("%v %s", err, out)
+	}
+	s.HLS = stream.NewHLSManager(ff, filepath.Join(dir, "hls"), 1)
+	s.HLS.HWAccel = "off"
+	s.Offline = stream.NewOfflineManager(s.HLS, filepath.Join(dir, "offline"))
+	defer s.Offline.Shutdown()
+	osrc := stream.OfflineSource{Path: src, Duration: 2, Height: 240, VideoCodec: "h264"}
+	dsrc := osrc
+	dsrc.Origin = "dsvideo"
+	ds, _, err := s.Offline.Create("anna", 1, "0", "high", dsrc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsrc := osrc
+	jsrc.Origin = "jellyfin"
+	if _, _, err := s.Offline.Create("anna", 2, "", "apple", jsrc); err != nil {
+		t.Fatal(err)
+	}
+	// ältere Aufgabe der Mediathek (vor der Herkunftsangabe): ohne Tonspur
+	if _, _, err := s.Offline.Create("anna", 3, "", "high", osrc); err != nil {
+		t.Fatal(err)
+	}
+	sid := login(t, ts.URL)
+	l := call(t, ts.URL, url.Values{"api": {"SYNO.VideoStation2.OfflineConversion"}, "version": {"1"}, "method": {"list"}, "_sid": {sid},
+		"additional": {`["video","file","produced_file"]`}})
+	tasks := l["data"].(map[string]any)["task"].([]any)
+	if len(tasks) != 1 || int(tasks[0].(map[string]any)["id"].(float64)) != ds.ID {
+		t.Fatalf("nur die DS-video-Aufgabe erwartet: %v", tasks)
+	}
+}
+
+// TestReopenStopsPreviousJob: Öffnet dieselbe Sitzung eine neue Wiedergabe,
+// endet die Umwandlung der vorigen (sonst teilen sich beide die CPU).
+func TestReopenStopsPreviousJob(t *testing.T) {
+	ff, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg fehlt")
+	}
+	fp, _ := exec.LookPath("ffprobe")
+	ts, _, dir := newTestServer(t, "local")
+	s := ts.Config.Handler.(*Server)
+	src := filepath.Join(dir, "media", "Film C (2019).mkv")
+	if out, err := exec.Command(ff, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=25:duration=20",
+		"-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-y", src).CombinedOutput(); err != nil {
+		t.Skipf("%v %s", err, out)
+	}
+	if _, err := s.Lib.Scan(s.Cfg().Folders); err != nil {
+		t.Fatal(err)
+	}
+	s.FFprobe = fp
+	if s.FFprobe == "" {
+		s.FFprobe = ff
+	}
+	s.HLS = stream.NewHLSManager(ff, filepath.Join(dir, "hls"), 4)
+	s.HLS.HWAccel = "off"
+	defer s.HLS.StopAll()
+	sid := login(t, ts.URL)
+	m := call(t, ts.URL, url.Values{"api": {"SYNO.VideoStation2.Movie"}, "version": {"1"}, "method": {"list"}, "_sid": {sid}, "additional": {`["file"]`}})
+	fid := ""
+	for _, x := range m["data"].(map[string]any)["movie"].([]any) {
+		if mv := x.(map[string]any); mv["title"] == "Film C" {
+			fid = mv["additional"].(map[string]any)["file"].([]any)[0].(map[string]any)["id"].(string)
+		}
+	}
+	open := func() {
+		r := call(t, ts.URL, url.Values{"api": {"SYNO.VideoStation2.Streaming"}, "version": {"1"}, "method": {"open"}, "_sid": {sid},
+			"file": {`{"id":` + fid + `}`}, "hls": {`{"device":"ios","profile":"sd_medium"}`}})
+		if r["success"] != true {
+			t.Fatalf("open: %v", r)
+		}
+	}
+	open()
+	if n := s.HLS.Count(); n != 1 {
+		t.Fatalf("Umwandlungen nach dem ersten Öffnen: %d", n)
+	}
+	open()
+	if n := s.HLS.Count(); n != 1 {
+		t.Fatalf("Umwandlungen nach dem zweiten Öffnen: %d (vorige nicht beendet)", n)
+	}
+}
+
+// TestIPhoneHEVCPassthrough: DS video auf dem iPhone fordert für HEVC „hls“
+// (Umwandlung) an. In Originalqualität übernimmt der Server das HEVC-Video
+// unverändert (4K in Software umzuwandeln schafft die NAS kaum) und stellt
+// eine Übersichtsliste mit CODECS/VIDEO-RANGE davor (sonst spielt der
+// Apple-Player HEVC in fMP4 nicht). Mit Qualitätsprofil wird umgewandelt.
+func TestIPhoneHEVCPassthrough(t *testing.T) {
+	ff, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg fehlt")
+	}
+	fp, _ := exec.LookPath("ffprobe")
+	ts, _, dir := newTestServer(t, "local")
+	s := ts.Config.Handler.(*Server)
+	src := filepath.Join(dir, "media", "Film C (2019).mkv")
+	if out, err := exec.Command(ff, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=24:duration=8",
+		"-f", "lavfi", "-i", "sine=frequency=440:duration=8", "-c:v", "libx265", "-pix_fmt", "yuv420p10le", "-x265-params", "log-level=error",
+		"-c:a", "eac3", "-y", src).CombinedOutput(); err != nil {
+		t.Skipf("%v %s", err, out)
+	}
+	if _, err := s.Lib.Scan(s.Cfg().Folders); err != nil {
+		t.Fatal(err)
+	}
+	s.FFprobe = fp
+	if s.FFprobe == "" {
+		s.FFprobe = ff
+	}
+	s.HLS = stream.NewHLSManager(ff, filepath.Join(dir, "hls"), 4)
+	s.HLS.HWAccel = "off"
+	defer s.HLS.StopAll()
+	sid := login(t, ts.URL)
+	m := call(t, ts.URL, url.Values{"api": {"SYNO.VideoStation2.Movie"}, "version": {"1"}, "method": {"list"}, "_sid": {sid}, "additional": {`["file"]`}})
+	fid := ""
+	for _, x := range m["data"].(map[string]any)["movie"].([]any) {
+		if mv := x.(map[string]any); mv["title"] == "Film C" {
+			fid = mv["additional"].(map[string]any)["file"].([]any)[0].(map[string]any)["id"].(string)
+		}
+	}
+	open := func(hls string) string {
+		r := call(t, ts.URL, url.Values{"api": {"SYNO.VideoStation2.Streaming"}, "version": {"1"}, "method": {"open"}, "_sid": {sid},
+			"file": {`{"id":` + fid + `}`}, "hls": {hls}})
+		if r["success"] != true {
+			t.Fatalf("open: %v", r)
+		}
+		return r["data"].(map[string]any)["stream_id"].(string)
+	}
+	get := func(u string) string {
+		resp, err := http.Get(u)
+		if err != nil || resp.StatusCode != 200 {
+			t.Fatalf("%s: %v %v", u, err, resp)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return string(b)
+	}
+	id := open(`{"device":"ios"}`)
+	master := get(ts.URL + "/webapi/VideoStation/vtestreaming.cgi/DTV.mov?api=SYNO.VideoStation.Streaming&version=1&method=stream&format=hls&id=%22" + id + "%22&_sid=" + sid)
+	if !strings.Contains(master, "#EXT-X-STREAM-INF:") || !strings.Contains(master, `CODECS="hvc1.`) || !strings.Contains(master, "ec-3") ||
+		!strings.Contains(master, "VIDEO-RANGE=SDR") || !strings.Contains(master, "RESOLUTION=640x360") {
+		t.Fatalf("Übersichtsliste: %s", master)
+	}
+	var variant string
+	for _, l := range strings.Split(master, "\n") {
+		if strings.HasPrefix(l, "/hls/") {
+			variant = l
+		}
+	}
+	if pl := get(ts.URL + variant); !strings.Contains(pl, "#EXT-X-MAP:URI=") || !strings.Contains(pl, ".m4s") {
+		t.Fatalf("Segmentliste: %s", pl)
+	}
+	// mit Qualitätsprofil (z.B. unterwegs „Mittel“): Umwandlung, ohne Übersicht
+	id = open(`{"device":"ios","profile":"sd_medium"}`)
+	if pl := get(ts.URL + "/webapi/VideoStation/vtestreaming.cgi/DTV.mov?api=SYNO.VideoStation.Streaming&version=1&method=stream&format=hls&id=%22" + id + "%22&_sid=" + sid); strings.Contains(pl, "#EXT-X-STREAM-INF:") {
+		t.Fatalf("Profil: Umwandlung erwartet: %s", pl)
+	}
+	// 4K mit Profil (unterwegs): Umwandlung, schnelle Variante
+	n, _ := strconv.Atoi(fid)
+	f, _ := s.Lib.File(n)
+	p := *f.Probe
+	p.Width, p.Height = 3840, 2160
+	s.Lib.SetProbe(f.ID, &p)
+	id = open(`{"device":"ios","profile":"sd_medium"}`)
+	st, _ := s.Streams.Get(id, "anna")
+	if j, ok := s.HLS.Get(st.HLSJob); !ok || !j.Decision.Fast4K || j.Decision.CopyVideo {
+		t.Fatalf("4K mit Profil: schnelle Umwandlung erwartet: %+v", j)
+	}
+}

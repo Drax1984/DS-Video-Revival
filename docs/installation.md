@@ -44,7 +44,9 @@ wird eines aus der Bilderliste des Titels genommen.
 ## 3b. FFmpeg für MKV/AVI/AC3/DTS
 
 Paket-Zentrum → Einstellungen → Paketquellen → `https://packages.synocommunity.com` hinzufügen →
-Paket **ffmpeg7** installieren. DS Video Revival findet es automatisch.
+Paket **ffmpeg7** installieren. DS Video Revival findet es automatisch. Es ist als Abhängigkeit eingetragen:
+Fehlt es, bietet das Paket-Zentrum es bei der Installation von DS Video Revival mit an (dafür muss die
+Paketquelle eingetragen sein).
 
 ## 3c. Verbindung ohne Port (wie früher Video Station)
 
@@ -81,6 +83,16 @@ was für DS file von außen funktioniert, funktioniert damit auch für DS video.
 
 Den internen Port 5180 nicht per Portweiterleitung ins Internet öffnen – er
 wird von außen nicht gebraucht.
+
+**Weboberfläche von unterwegs:** Sie ist auch unter der
+DSM-Adresse mit `/dsvr/` erreichbar, z.B. `https://nas.example.com:5001/dsvr/`,
+und damit überall dort, wo DSM erreichbar ist – auch über **QuickConnect**: im
+Browser bei DSM anmelden und im Hauptmenü *DS Video Revival* öffnen. Der
+Eintrag öffnet die Weboberfläche immer unter derselben Adresse wie DSM.
+Anmeldung wie bisher mit dem DSM-Konto (inkl. 2FA). Unter Systemsteuerung →
+Anmeldeportal → Anwendungen kann DSM nur eigene Synology-Anwendungen führen;
+für eine eigene Subdomain oder einen eigenen Port gibt es dort unter
+„Erweitert“ → „Reverse Proxy“ eine Regel mit Ziel `http://localhost:5180`.
 
 **Vorgeschalteter Reverse-Proxy (z.B. Nginx Proxy Manager):** Damit lange
 Filme nicht nach einigen Minuten abbrechen („unexpected end of stream“, auf dem
@@ -227,7 +239,7 @@ alle Inhalte (Freigaben und Altersgrenzen gelten für sie nicht).
 
 - Einstellungen → **Weboberfläche** → „Port der Weboberfläche“ (Standard 5180, erlaubt 1024–65535, nicht 5000/5001 und kein schon belegter Port).
 - Die Änderung wird nach einem **Neustart** wirksam: Einstellungen → **Neustart** → „DS Video Revival neu starten“. Die Weboberfläche wechselt danach selbst zum neuen Port; dort neu anmelden. Laufende Wiedergaben brechen beim Neustart ab, eine laufende Offline-Umwandlung beginnt danach von vorn.
-- Der Eintrag im DSM-Hauptmenü wird auf den neuen Port umgestellt. Öffnet er noch den alten Port, DSM im Browser neu laden; hilft das nicht, das Paket im Paket-Zentrum einmal stoppen und starten.
+- Der Eintrag im DSM-Hauptmenü öffnet die Weboberfläche über die DSM-Adresse (`…/dsvr/`) und ist vom Port unabhängig. Nur wenn DSMs Weiterleitung fehlt, nutzt er direkt den eingestellten Port.
 - Die DS-video-Apps sind davon nicht betroffen: Sie verbinden sich weiter über die DSM-Adresse. Intern nutzt DSMs Webserver dafür immer 127.0.0.1:5180.
 - Bei aktiver DSM-Firewall den neuen Port erlauben.
 - Der Neustart lässt sich auch ohne Portänderung nutzen, z.B. nach einem FFmpeg-Update.

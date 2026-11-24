@@ -21,7 +21,8 @@ address as DSM, no port needed, sign-in with your DSM account.
 - Offline download and offline conversion in the apps
 - Web interface in **English or German** (automatic by browser/system language, or chosen): media library in the browser, metadata without API key (Wikidata, Wikipedia, TVmaze, IMDb datasets; TMDb optional),
   user permissions (folders, age limits, downloads, one connection at a time), active connections with disconnect/temporary block,
-  folder view with duplicate finder for DSM administrators, configurable web interface port with a restart button
+  folder view with duplicate finder for DSM administrators, configurable web interface port with a restart button;
+  also reachable at the DSM address (`https://NAS:5001/dsvr/`), so from outside via QuickConnect, DynDNS or your own domain
 - **Jellyfin apps** (optional, since 0.6.6): a built-in Jellyfin-compatible interface lets Infuse, Swiftfin, Jellyfin for Android TV,
   Findroid or Streamyfin use the same library with the same permissions and playback positions; sign-in with your DSM account or
   Quick Connect (also with two-factor sign-in) – a second option in case the DS video apps disappear from the app stores.
@@ -32,6 +33,8 @@ address as DSM, no port needed, sign-in with your DSM account.
 - Synology NAS running **DSM 7.2 or later**
 - DSM (firmware) updates work as usual – no need to uninstall or reinstall DS Video Revival
 - For MKV/AVI, AC3/DTS audio, HEVC etc.: package **ffmpeg7** from [SynoCommunity](https://synocommunity.com)
+  (package source `https://packages.synocommunity.com`). It is listed as a dependency: if it is missing, Package
+  Center offers it during installation.
 
 ## Which package for which Synology?
 

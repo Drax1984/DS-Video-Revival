@@ -56,6 +56,7 @@ type OfflineSource struct {
 	AudioIndex   int     `json:"audio_index"` // relative Audiospur
 	AudioCodec   string  `json:"audio_codec,omitempty"`
 	AudioProfile string  `json:"audio_profile,omitempty"`
+	Origin       string  `json:"origin,omitempty"` // Auftraggeber: „dsvideo“ oder „jellyfin“ (älter: leer)
 }
 
 // OfflineTask: eine Umwandlung.
@@ -577,23 +578,31 @@ func (m *OfflineManager) args(t *OfflineTask, out string, hw bool) ([]string, st
 	switch {
 	case cv:
 		args = append(args, "-c:v", "copy")
-		if s.VideoCodec == "hevc" {
+		if s.VideoCodec == "hevc" && t.Profile == "apple" {
 			args = append(args, "-tag:v", "hvc1") // Apple spielt HEVC in MP4 nur als „hvc1“
 		}
 		mode = append(mode, "Video kopiert")
 	case hw:
 		args = append(args, "-vf", fmt.Sprintf("format=nv12,hwupload,scale_vaapi=w=-2:h='min(ih,%d)'", l.height),
 			"-c:v", "h264_vaapi", "-b:v", rate, "-maxrate", rate)
-		args = append(args, sdrTags...)
+		if t.Profile == "apple" { // DS video (high/medium/low): wie bis 0.6.6
+			args = append(args, sdrTags...)
+		}
 		mode = append(mode, fmt.Sprintf("Video → H.264 ≤%dp [VAAPI]", l.height))
 	default:
 		enc := m.HLS.softwareH264Args()
 		if enc == nil {
 			return nil, "", ErrOfflineVideo
 		}
-		args = append(args, "-vf", m.HLS.softwareVF(s.Path, strconv.Itoa(l.height)))
+		if t.Profile == "apple" {
+			args = append(args, "-vf", m.HLS.softwareVF(s.Path, strconv.Itoa(l.height)))
+		} else { // DS video (high/medium/low): wie bis 0.6.6
+			args = append(args, "-vf", fmt.Sprintf("scale=-2:'min(ih,%d)'", l.height))
+		}
 		args = append(args, offlineRate(enc, rate)...)
-		args = append(args, sdrTags...)
+		if t.Profile == "apple" {
+			args = append(args, sdrTags...)
+		}
 		mode = append(mode, fmt.Sprintf("Video → H.264 ≤%dp (%s)", l.height, enc[1]))
 	}
 	if ca {

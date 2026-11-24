@@ -107,7 +107,7 @@ func (j *Job) segName(k int) string {
 
 // segLen: Segmentlänge dieses Jobs.
 func (j *Job) segLen() float64 {
-	if j.VOD && !j.Decision.CopyVideo {
+	if j.VOD && !j.Decision.CopyVideo && (!j.Decision.Classic || j.Decision.Fast4K) {
 		return SegLenTranscode
 	}
 	return SegLen
@@ -231,6 +231,9 @@ var ErrNoH264 = errors.New("das gefundene FFmpeg hat keinen H.264-Encoder – bi
 
 // ErrBusy: zu viele gleichzeitige Umwandlungen.
 var ErrBusy = errors.New("zu viele gleichzeitige Umwandlungen")
+
+// HardwareTranscode: Umwandlung per VAAPI möglich (sonst nur Software).
+func (m *HLSManager) HardwareTranscode() bool { return m != nil && m.vaapi() }
 
 func (m *HLSManager) vaapi() bool {
 	m.mu.Lock()
@@ -358,6 +361,9 @@ func (m *HLSManager) launch(j *Job, audioIndex int, hw bool) error {
 	case j.Start > 0:
 		args = append(args, "-ss", strconv.FormatFloat(j.Start, 'f', 1, 64))
 	}
+	if fast4K := j.Decision.Classic && j.Decision.Fast4K && !hw && !j.Decision.CopyVideo; fast4K {
+		args = append(args, "-skip_loop_filter", "all")
+	}
 	args = append(args, "-i", j.Src, "-map", "0:v:0", "-map", fmt.Sprintf("0:a:%d?", audioIndex), "-sn", "-dn")
 	if outSS != "" {
 		args = append(args, "-ss", outSS)
@@ -368,6 +374,8 @@ func (m *HLSManager) launch(j *Job, audioIndex int, hw bool) error {
 		if j.Decision.HEVC {
 			args = append(args, "-tag:v", "hvc1") // von Apple für HEVC in fMP4 gefordert
 		}
+	case hw && j.Decision.Classic:
+		args = append(args, "-vf", "format=nv12,hwupload,scale_vaapi=w=-2:h='min(ih,"+maxH(j.Decision)+")'", "-c:v", "h264_vaapi", "-qp", "23", "-g", "48")
 	case hw:
 		args = append(args, "-vf", "format=nv12,hwupload,scale_vaapi=w=-2:h='min(ih,"+maxH(j.Decision)+")'", "-c:v", "h264_vaapi")
 		if r := j.Decision.MaxRate; r > 0 {
@@ -377,6 +385,18 @@ func (m *HLSManager) launch(j *Job, audioIndex int, hw bool) error {
 		}
 		args = append(args, "-g", "48")
 		args = append(args, sdrTags...)
+	case j.Decision.Classic && j.Decision.Fast4K:
+		if !m.CanEncodeH264() {
+			return ErrNoH264
+		}
+		args = append(args, "-vf", "scale=-2:'min(ih,"+maxH(j.Decision)+")':flags=fast_bilinear")
+		args = append(args, withPreset(m.softwareH264Args(), "ultrafast")...)
+	case j.Decision.Classic:
+		if !m.CanEncodeH264() {
+			return ErrNoH264
+		}
+		args = append(args, "-vf", "scale=-2:'min(ih,"+maxH(j.Decision)+")'")
+		args = append(args, m.softwareH264Args()...)
 	default:
 		if !m.CanEncodeH264() {
 			return ErrNoH264
@@ -1200,7 +1220,7 @@ func (m *HLSManager) paceAll() {
 // pace hält FFmpeg an, sobald es weit genug vor der Wiedergabe liegt, lässt
 // es weiterlaufen, wenn der Player aufholt, und löscht alte Segmente.
 func (m *HLSManager) pace(j *Job) {
-	if !j.VOD || j.finished() {
+	if !j.VOD || j.Decision.Classic || j.finished() {
 		return
 	}
 	L := j.segLen()

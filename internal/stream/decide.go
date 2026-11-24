@@ -53,7 +53,18 @@ type Decision struct {
 	// TS: MPEG-TS-Segmente statt fMP4 (durchsuchbare Liste, nur H.264 –
 	// HEVC geht bei Apple nur in fMP4). So liefert auch Jellyfin an iPhone und
 	// iPad, wenn die App „ts“ als Container nennt.
-	TS     bool   `json:"ts,omitempty"`
+	TS bool `json:"ts,omitempty"`
+	// Classic: Ablauf wie bis 0.6.6 – für die DS-video-Apps. Die späteren
+	// Anpassungen für die Jellyfin-Apps (3-s-Segmente, Drosselung von FFmpeg,
+	// Farbumrechnung bei HDR, SDR-Kennzeichnung, schnellere x264-Stufe bei 4K)
+	// gelten dort nicht; DS video lief damit einwandfrei.
+	Classic bool `json:"classic,omitempty"`
+	// Fast4K: 4K-Quelle in Software umwandeln (nur mit Classic): Das Dekodieren
+	// von 4K HEVC braucht fast die ganze CPU der NAS. Ohne Entblockungsfilter
+	// beim Dekodieren (fällt beim Verkleinern nicht auf), mit schnellem
+	// Verkleinern und x264 „ultrafast“ sinkt die übrige Rechenzeit um rund ein
+	// Viertel (gemessen), 3-s-Segmente lassen Start und Spulen früher beginnen.
+	Fast4K bool   `json:"fast4k,omitempty"`
 	Client string `json:"client,omitempty"` // Caps-Name (Wahl des Ton-Encoders)
 	// Duration der Quelle (Sekunden). >0: vollständige, durchsuchbare HLS-Liste
 	// (VOD) – Springen/Fortsetzen an jede Stelle, FFmpeg startet bei Bedarf neu.

@@ -2,6 +2,64 @@
 
 Installationspakete: [Releases](../../releases). Welches Paket für welche NAS: [README](README.md#welches-paket-für-welche-synology).
 
+## 0.6.8 – 24.11.2026
+
+- **Weboberfläche von unterwegs, auch über QuickConnect:** Sie ist jetzt zusätzlich unter der DSM-Adresse mit
+  `/dsvr/` erreichbar (z.B. `https://nas:5001/dsvr/`), über DSMs eigenen Webserver wie die DS-video-Apps. Der
+  Eintrag „DS Video Revival“ im DSM-Hauptmenü öffnet sie unter derselben Adresse wie DSM statt fest über Port 5180;
+  über QuickConnect angemeldet klappt er damit auch von unterwegs. Die Mediathek spielt Videos dann über DSM ab.
+  An- und Abmeldung der Weboberfläche laufen immer über das Paket, auf beiden Wegen. Sonst lehnte DSM normale
+  Benutzer unter der DSM-Adresse mit „Keine Berechtigung“ ab, nur Administratoren kamen hinein.
+  Port 5180 im Heimnetz bleibt wie bisher. Ins Anmeldeportal (Anwendungen) lässt DSM nur eigene Anwendungen.
+
+- **Downloads in der App „Jellyfin“ für Android:** Die App fragt vor dem Laden den Dateipfad ab („Path“) und brach
+  ohne ihn mit „Missing item path“ ab. Zurück blieben leere Dateien. Der Server liefert jetzt den Dateinamen,
+  ohne Ordner der NAS. Die Mediathek zeigt die Übertragung mit Prozent und Restzeit, am Ende „✓ Auf dem Handy“.
+  Startet die App nicht, weist sie darauf hin, dass die App voreingestellt nur im WLAN lädt.
+- **Externer Player in der App „Jellyfin“ für Android (VLC, MX Player, mpv):** Ist er in den App-Einstellungen
+  gewählt, startet die Mediathek jetzt ihn statt ihres eigenen Players. Er spielt die Datei direkt, auch 4K/HEVC.
+  Die Adresse für den Player enthält keine Anmeldedaten. Sie gilt deshalb nur mit der Wiedergabe-Sitzung, die
+  die App kurz vorher angemeldet abgefragt hat, und nur für diesen Titel. Beim Beenden trägt die Mediathek die
+  Position ein (Fortsetzen) bzw. „gesehen“.
+- **DS video (iPhone) stürzte nach der Anmeldung ab**, sobald über die App „Jellyfin“ Downloads vorbereitet worden
+  waren: Deren Umwandlungen standen auch in der Liste der Offline-Umwandlungen von DS video, die die App direkt nach
+  der Anmeldung lädt. DS video sieht jetzt nur noch eigene Umwandlungen. Neue Aufgaben tragen ihre Herkunft, ältere
+  der Mediathek werden an der fehlenden Tonspur-Angabe erkannt.
+- **DS video wieder wie bis 0.6.6:** Umwandlungen für die DS-video-Apps laufen wieder genau wie vor den Anpassungen
+  für die Jellyfin-Apps: 6-s-Segmente, keine Drosselung von FFmpeg, nur verkleinern (keine Farbumrechnung bei HDR,
+  keine SDR-Kennzeichnung), x264-Stufe wie früher. Das gilt auch für die Offline-Umwandlung von DS video (Hoch,
+  Mittel, Niedrig). Seit 0.6.7 luden Filme in DS video mit Umwandlung (z.B. unterwegs „Mittel“) sehr langsam.
+  Die Änderungen für Jellyfin gelten nur noch dort. Bei 4K-HDR rechnet auch Jellyfin die Farben nicht mehr um
+  (zu langsam für die CPU der NAS).
+- **DS video auf dem iPhone: HEVC/4K ohne Umwandlung.** Für HEVC-Filme fordert die App eine Umwandlung an, die die
+  NAS bei 4K in Software kaum in Echtzeit schafft. In Originalqualität (ohne Qualitätsprofil, also im Heimnetz)
+  übernimmt der Server das HEVC-Video jetzt unverändert, auch 4K/HDR, wie die Jellyfin-Schnittstelle. Davor steht
+  eine Übersichtsliste mit CODECS, Auflösung und VIDEO-RANGE, ohne die der Apple-Player HEVC nicht spielt. Nur der
+  Ton wird bei Bedarf umgewandelt. Mit Qualitätsprofil (unterwegs bzw. über die externe Adresse, z.B. „Mittel“)
+  wird umgewandelt, 4K unverändert bräuchte 20–40 Mbit/s.
+- **DS video: 4K schneller umwandeln.** Bei 4K-Quellen braucht das Dekodieren fast die ganze CPU der NAS. Die
+  übrige Arbeit sinkt jetzt um rund ein Viertel: kein Entblockungsfilter beim Dekodieren (fällt beim Verkleinern
+  nicht auf), schnelleres Verkleinern, x264 „ultrafast“. Dazu 3-s-Segmente statt 6 s, damit Start und Spulen
+  früher beginnen. Gemessen mit 4K HEVC 10 Bit: von 0,85- auf 1,1-fache Echtzeit auf 2 Kernen. Für Quellen bis
+  1440p bleibt alles wie in 0.6.6.
+- **Keine doppelten Umwandlungen mehr:** Öffnet eine Sitzung eine neue Wiedergabe, ohne die vorige zu schließen
+  (z.B. App beendet), endet deren Umwandlung sofort statt erst nach 90 s Ruhe. Ebenso enden die Umwandlungen einer
+  Sitzung, die durch eine Neuanmeldung desselben Geräts ersetzt wird. Vorher teilten sich beide die CPU, bei 4K lud
+  dann keine von beiden.
+- **Verbindungen:** Meldet sich eine App auf demselben Gerät neu an (z.B. nach einem Neustart der App), ersetzt die
+  neue Sitzung die alte. Das Gerät steht nur noch einmal in der Liste und nimmt sich bei „Nur eine Verbindung“ nicht
+  selbst den Platz weg. Sitzungen mit laufender Wiedergabe oder laufendem Download bleiben unberührt.
+- **Externer Player und 4K/HEVC 10 Bit:** VLC zeigte auf älteren Handys bei 4K-Filmen ein stehendes Bild mit
+  laufendem Ton, weil es das Original nicht schnell genug entschlüsseln konnte. Wie bei der App „DS video“ wandelt
+  der Server solche Filme (über 1080p oder HEVC mit 10 Bit/HDR) jetzt für den externen Player in H.264 (höchstens
+  1080p) um. Die App gibt dem Player immer die Adresse der Originaldatei, der Server leitet sie auf die Umwandlung um.
+- **Paket-Zentrum:** Der Hersteller „DS Video Revival Project“ verlinkt auf das GitHub-Repo. FFmpeg 7
+  (SynoCommunity) ist als Abhängigkeit eingetragen und wird bei der Installation mit angeboten, wenn es fehlt.
+- **Menü in der App „Jellyfin“ für Android:** Oben rechts steht dort „Menü“ statt „Abmelden“, mit Downloads
+  (Ansicht der App mit Plakaten und Offline-Wiedergabe), App-Einstellungen (z.B. Player, Downloads nur im WLAN),
+  Anderen Server wählen und Abmelden. Die Android-App hat keine eigene Leiste wie die App fürs iPhone, bei
+  Jellyfin öffnet diese Teile das Benutzermenü der Weboberfläche. iPhone und Browser behalten „Abmelden“.
+
 ## 0.6.7 – 21.11.2026
 
 **Schwerpunkt: App „Jellyfin“ auf iPhone und Android** – 4K/HEVC, Downloads, Android-Anbindung, weniger Last auf der NAS.
